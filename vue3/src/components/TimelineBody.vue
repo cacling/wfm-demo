@@ -143,8 +143,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           v-for="block in blocksByAgent.get(agent.id)"
           :key="block.id"
           :block="block"
-          @pointerdown="onPointerDown"
-          @contextmenu="onBlockContextMenu"
+          @block-pointerdown="onPointerDown"
+          @block-contextmenu="onBlockContextMenu"
         />
       </div>
 

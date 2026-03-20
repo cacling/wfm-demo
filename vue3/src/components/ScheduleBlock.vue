@@ -27,9 +27,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   /** 按下块时触发（由 useBlockInteraction 处理） */
-  pointerdown: [e: PointerEvent, blockId: string, mode: 'drag' | 'resize-left' | 'resize-right']
+  'block-pointerdown': [e: PointerEvent, blockId: string, mode: 'drag' | 'resize-left' | 'resize-right']
   /** 右键点击时触发（由 TimelineBody 处理） */
-  contextmenu: [e: MouseEvent, block: DisplayBlock]
+  'block-contextmenu': [e: MouseEvent, block: DisplayBlock]
 }>()
 
 const store = useScheduleStore()
@@ -45,7 +45,7 @@ const isSelected = computed(() => store.selectedBlockId === props.block.id) // �
 /** 阻止浏览器默认右键菜单，改用自定义菜单 */
 function onContextMenu(e: MouseEvent) {
   e.preventDefault()
-  emit('contextmenu', e, props.block)
+  emit('block-contextmenu', e, props.block)
 }
 </script>
 
@@ -65,7 +65,7 @@ function onContextMenu(e: MouseEvent) {
       :style="{ backgroundColor: color }"
       :title="`${BLOCK_LABELS[block.type]}\n${start.format('HH:mm')} - ${end.format('HH:mm')}`"
       @click.stop
-      @pointerdown="block.editable && emit('pointerdown', $event, block.id, 'drag')"
+      @pointerdown="block.editable && emit('block-pointerdown', $event, block.id, 'drag')"
       @contextmenu="onContextMenu"
     >
       <!-- 块内文字标签（仅当宽度 > 60px 时显示，避免拥挤） -->
@@ -91,7 +91,7 @@ function onContextMenu(e: MouseEvent) {
     <div
       v-if="block.editable"
       class="absolute left-0 top-0 w-2 h-full cursor-ew-resize opacity-0 group-hover:opacity-100 z-10"
-      @pointerdown="emit('pointerdown', $event, block.id, 'resize-left')"
+      @pointerdown="emit('block-pointerdown', $event, block.id, 'resize-left')"
     >
       <div class="w-0.5 h-full bg-white/60 ml-0.5 rounded" />
     </div>
@@ -100,7 +100,7 @@ function onContextMenu(e: MouseEvent) {
     <div
       v-if="block.editable"
       class="absolute right-0 top-0 w-2 h-full cursor-ew-resize opacity-0 group-hover:opacity-100 z-10"
-      @pointerdown="emit('pointerdown', $event, block.id, 'resize-right')"
+      @pointerdown="emit('block-pointerdown', $event, block.id, 'resize-right')"
     >
       <div class="w-0.5 h-full bg-white/60 ml-auto mr-0.5 rounded" />
     </div>

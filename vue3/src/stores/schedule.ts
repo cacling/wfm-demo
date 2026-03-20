@@ -84,13 +84,14 @@ export const useScheduleStore = defineStore('schedule', () => {
    * 通过后端 API 提交编辑意图
    * 成功后重新加载时间轴数据
    */
-  async function commitEdit(intent: Omit<EditIntentCommand, 'versionNo'>): Promise<{ ok: boolean; validation?: any }> {
+  async function commitEdit(intent: Omit<EditIntentCommand, 'versionNo'> & { confirmWarnings?: boolean }): Promise<{ ok: boolean; validation?: any }> {
     if (!currentPlanId.value) return { ok: false }
 
     try {
       const cmd: EditIntentCommand = {
         ...intent,
         versionNo: versionNo.value,
+        confirmWarnings: intent.confirmWarnings ?? true, // 默认自动确认 warning
       }
       const result = await api.commitEdit(currentPlanId.value, cmd)
 
