@@ -61,6 +61,43 @@ router.post('/', async (c) => {
   return c.json(row, 201)
 })
 
+// ========== 班次内活动模板 ==========
+
+/** 列出班次的活动模板（含活动名称/颜色） */
+router.get('/:id/activities', (c) => {
+  const shiftId = Number(c.req.param('id'))
+  const rows = db
+    .select({
+      id: shiftActivities.id,
+      shiftId: shiftActivities.shiftId,
+      activityId: shiftActivities.activityId,
+      activityName: activities.name,
+      activityColor: activities.color,
+      offsetMinutes: shiftActivities.offsetMinutes,
+      durationMinutes: shiftActivities.durationMinutes,
+      sortOrder: shiftActivities.sortOrder,
+    })
+    .from(shiftActivities)
+    .leftJoin(activities, eq(shiftActivities.activityId, activities.id))
+    .where(eq(shiftActivities.shiftId, shiftId))
+    .all()
+  return c.json(rows)
+})
+
+/** 为班次添加活动模板 */
+router.post('/:id/activities', async (c) => {
+  const shiftId = Number(c.req.param('id'))
+  const body = await c.req.json()
+  const [row] = db.insert(shiftActivities).values({ ...body, shiftId }).returning().all()
+  return c.json(row, 201)
+})
+
+/** 删除活动模板 */
+router.delete('/activities/:templateId', (c) => {
+  db.delete(shiftActivities).where(eq(shiftActivities.id, Number(c.req.param('templateId')))).run()
+  return c.json({ ok: true })
+})
+
 // ========== 班次包 ==========
 router.get('/packages', (c) => {
   const pkgs = db.select().from(shiftPackages).all()
@@ -93,6 +130,39 @@ router.post('/packages', async (c) => {
   const body = await c.req.json()
   const [row] = db.insert(shiftPackages).values(body).returning().all()
   return c.json(row, 201)
+})
+
+/** 列出班次包内的班次条目 */
+router.get('/packages/:id/items', (c) => {
+  const packageId = Number(c.req.param('id'))
+  const rows = db
+    .select({
+      itemId: shiftPackageItems.id,
+      shiftId: shifts.id,
+      shiftName: shifts.name,
+      startTime: shifts.startTime,
+      endTime: shifts.endTime,
+      durationMinutes: shifts.durationMinutes,
+    })
+    .from(shiftPackageItems)
+    .innerJoin(shifts, eq(shiftPackageItems.shiftId, shifts.id))
+    .where(eq(shiftPackageItems.packageId, packageId))
+    .all()
+  return c.json(rows)
+})
+
+/** 向班次包添加班次 */
+router.post('/packages/:id/items', async (c) => {
+  const packageId = Number(c.req.param('id'))
+  const body = await c.req.json()
+  const [row] = db.insert(shiftPackageItems).values({ packageId, shiftId: body.shiftId }).returning().all()
+  return c.json(row, 201)
+})
+
+/** 从班次包移除条目 */
+router.delete('/packages/items/:itemId', (c) => {
+  db.delete(shiftPackageItems).where(eq(shiftPackageItems.id, Number(c.req.param('itemId')))).run()
+  return c.json({ ok: true })
 })
 
 export default router

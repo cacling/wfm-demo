@@ -7,6 +7,10 @@ import groupsRouter from './groups'
 import shiftsRouter from './shifts'
 import leavesRouter from './leaves'
 import plansRouter from './plans'
+import skillsRouter from './skills'
+import leaveTypesRouter from './leave-types'
+import rulesRouter from './rules'
+import staffingRouter from './staffing'
 
 export function registerRoutes(app: Hono) {
   app.route('/api/activities', activitiesRouter)
@@ -16,4 +20,8 @@ export function registerRoutes(app: Hono) {
   app.route('/api/shifts', shiftsRouter)
   app.route('/api/leaves', leavesRouter)
   app.route('/api/plans', plansRouter)
+  app.route('/api/skills', skillsRouter)
+  app.route('/api/leave-types', leaveTypesRouter)
+  app.route('/api/rules', rulesRouter)
+  app.route('/api/staffing-requirements', staffingRouter)
 }
