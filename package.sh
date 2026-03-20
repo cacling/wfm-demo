@@ -16,7 +16,6 @@ rm -f "$OUTPUT"
 zip -r "$OUTPUT" . \
   -x "*/node_modules/*" \
   -x "*/dist/*" \
-  -x "*/dist-ssr/*" \
   -x ".git/*" \
   -x "*.zip" \
   -x "*/.DS_Store" \
