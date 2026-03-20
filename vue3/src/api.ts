@@ -1,5 +1,5 @@
 /**
- * api.ts — 后端 API 客户端
+ * api.ts — 后端 API 客户端（Phase 3: EditIntent 支持）
  */
 
 const BASE = 'http://localhost:3210/api'
@@ -13,6 +13,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json()
 }
 
+export interface EditIntentCommand {
+  intentType: string
+  assignmentId: number
+  blockId?: number
+  activityId?: number
+  leaveTypeId?: number
+  targetRange?: { startTime: string; endTime: string }
+  versionNo: number
+  confirmWarnings?: boolean
+}
+
 export const api = {
   // 排班方案
   getPlans: () => request<any[]>('/plans'),
@@ -23,7 +34,17 @@ export const api = {
   // 活动类型
   getActivities: () => request<any[]>('/activities'),
 
-  // 排班块编辑（Phase 3 实现）
+  // EditIntent API（Phase 3）
+  previewEdit: (planId: number, cmd: EditIntentCommand) =>
+    request<any>(`/plans/${planId}/changes/preview`, { method: 'POST', body: JSON.stringify(cmd) }),
+
+  commitEdit: (planId: number, cmd: EditIntentCommand) =>
+    request<any>(`/plans/${planId}/changes/commit`, { method: 'POST', body: JSON.stringify(cmd) }),
+
+  confirmEdit: (planId: number, opId: number, cmd: EditIntentCommand) =>
+    request<any>(`/plans/${planId}/changes/${opId}/confirm`, { method: 'POST', body: JSON.stringify(cmd) }),
+
+  // 旧的块编辑 API（保留兼容）
   updateBlock: (planId: number, blockId: number, data: any) =>
     request<any>(`/plans/${planId}/blocks/${blockId}`, { method: 'PUT', body: JSON.stringify(data) }),
   addBlock: (planId: number, data: any) =>

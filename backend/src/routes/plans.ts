@@ -165,6 +165,7 @@ router.get('/:id/timeline', (c) => {
 
 import { updateBlock, deleteBlock as deleteBlockSvc, addBlock as addBlockSvc } from '../services/block-editor'
 import { validatePlanDay } from '../services/validator'
+import { executeEditIntent, type EditIntentCommand } from '../services/edit-service'
 
 /** 修改块（拖拽/拉伸后提交） */
 router.put('/:id/blocks/:blockId', async (c) => {
@@ -222,6 +223,60 @@ router.get('/:id/changes', (c) => {
     return { ...op, items }
   })
   return c.json(result)
+})
+
+// ========== EditIntent API（Phase 3） ==========
+
+/** 预览编辑意图 */
+router.post('/:id/changes/preview', async (c) => {
+  const body = await c.req.json() as Partial<EditIntentCommand>
+  const cmd: EditIntentCommand = {
+    ...body,
+    planId: Number(c.req.param('id')),
+    saveMode: 'preview',
+  } as EditIntentCommand
+
+  try {
+    const result = executeEditIntent(cmd)
+    return c.json(result)
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400)
+  }
+})
+
+/** 提交编辑意图 */
+router.post('/:id/changes/commit', async (c) => {
+  const body = await c.req.json() as Partial<EditIntentCommand>
+  const cmd: EditIntentCommand = {
+    ...body,
+    planId: Number(c.req.param('id')),
+    saveMode: 'commit',
+  } as EditIntentCommand
+
+  try {
+    const result = executeEditIntent(cmd)
+    return c.json(result)
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400)
+  }
+})
+
+/** 确认告警后强制提交 */
+router.post('/:id/changes/:opId/confirm', async (c) => {
+  const body = await c.req.json() as Partial<EditIntentCommand>
+  const cmd: EditIntentCommand = {
+    ...body,
+    planId: Number(c.req.param('id')),
+    saveMode: 'commit',
+    confirmWarnings: true,
+  } as EditIntentCommand
+
+  try {
+    const result = executeEditIntent(cmd)
+    return c.json(result)
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400)
+  }
 })
 
 export default router

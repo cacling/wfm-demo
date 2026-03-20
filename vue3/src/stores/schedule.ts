@@ -1,55 +1,51 @@
 /**
- * schedule.ts — Pinia 状态管理
- *
- * Phase 2 改造：从后端 API 加载排班数据，不再使用 mock-data。
+ * schedule.ts — Pinia 状态管理（Phase 3: EditIntent API 对接）
  *
  * 数据流：
- * 1. loadTimeline(planId, date) → 调 GET /api/plans/:id/timeline
- * 2. 后端返回 agents + blocks（含 Work 块）
- * 3. 前端直接渲染所有块（不再本地派生 Work）
- * 4. 拖拽/拉伸时：本地预览 → 松手后调后端 API 提交（Phase 3）
- *    当前 Phase 2 仍在前端做本地校验和提交
+ * 1. loadTimeline → GET /api/plans/:id/timeline → 加载所有块
+ * 2. 拖拽中：updateBlockPreview → 本地更新位置（实时预览）
+ * 3. 松手后：commitEdit → POST /api/plans/:id/changes/commit → 后端校验+落库
+ * 4. 成功后：从返回值更新块列表，或重新 loadTimeline
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import dayjs from 'dayjs'
 import type { DisplayBlock, ActivityType } from '../types'
 import { snapTime, setBaseDate } from '../utils/time'
-import { api } from '../api'
+import { api, type EditIntentCommand } from '../api'
 
-/** 从后端返回的坐席信息 */
 interface TimelineAgent {
   id: number
   name: string
   shift: string
-  shiftStart: string  // HH:mm
+  shiftStart: string
   shiftEnd: string
   groupName: string | null
   contractName: string | null
 }
 
 export const useScheduleStore = defineStore('schedule', () => {
-  // ========== 状态 ==========
   const agents = ref<TimelineAgent[]>([])
   const blocks = ref<DisplayBlock[]>([])
   const selectedBlockId = ref<string | null>(null)
   const loading = ref(false)
   const currentPlanId = ref<number | null>(null)
   const currentDate = ref<string>('')
+  const versionNo = ref<number>(1)
+  const lastValidation = ref<any>(null)
 
   // ========== API 加载 ==========
 
-  /** 从后端加载某天的时间轴数据 */
   async function loadTimeline(planId: number, date: string) {
     loading.value = true
     try {
-      setBaseDate(date)  // 设置时间轴基准日期
+      setBaseDate(date)
       const data = await api.getTimeline(planId, date)
       agents.value = data.agents
-      // 将后端返回的块转为 DisplayBlock 格式
       blocks.value = data.blocks.map((b: any) => ({
         id: String(b.id),
+        entryId: b.entryId,
         agentId: String(b.agentId),
         type: b.type,
         start: b.start,
@@ -59,149 +55,185 @@ export const useScheduleStore = defineStore('schedule', () => {
       }))
       currentPlanId.value = planId
       currentDate.value = date
+      // 获取当前版本号
+      const plans = await api.getPlans()
+      const plan = plans.find((p: any) => p.id === planId)
+      if (plan) versionNo.value = plan.versionNo
     } finally {
       loading.value = false
     }
   }
 
-  // ========== 按坐席分组获取块 ==========
-
-  function getBlocksForAgent(agentId: number): DisplayBlock[] {
-    return blocks.value.filter((b) => b.agentId === String(agentId))
-  }
-
-  // ========== 选中 ==========
-
   function selectBlock(id: string | null) {
     selectedBlockId.value = id
   }
 
-  // ========== 本地编辑（拖拽/拉伸/增删） ==========
-  // Phase 2: 仍在前端做本地校验
-  // Phase 3: 改为调后端 API
+  // ========== 拖拽预览（本地） ==========
 
-  function moveBlock(id: string, deltaMinutes: number): boolean {
-    const idx = blocks.value.findIndex((b) => b.id === id)
-    if (idx === -1 || !blocks.value[idx].editable) return false
-    const block = blocks.value[idx]
-
-    const agent = agents.value.find((a) => String(a.id) === block.agentId)
-    if (!agent) return false
-
-    const duration = dayjs(block.end).diff(dayjs(block.start), 'minute')
-    const newStart = snapTime(dayjs(block.start).add(deltaMinutes, 'minute'))
-    const newEnd = newStart.add(duration, 'minute')
-
-    // 构造当天的班次绝对时间边界
-    const datePrefix = currentDate.value  // YYYY-MM-DD
-    const [sh, sm] = agent.shiftStart.split(':').map(Number)
-    const [eh, em] = agent.shiftEnd.split(':').map(Number)
-    const shiftStartAbs = dayjs(datePrefix).add(sh, 'hour').add(sm, 'minute')
-    const shiftEndAbs = dayjs(datePrefix).add(eh, 'hour').add(em, 'minute')
-
-    if (newStart.isBefore(shiftStartAbs)) return false
-    if (newEnd.isAfter(shiftEndAbs)) return false
-
-    // 不与同坐席其他非 Work 块重叠
-    const overlaps = blocks.value.some((b) => {
-      if (b.id === id || b.agentId !== block.agentId || b.type === 'work') return false
-      return newStart.isBefore(dayjs(b.end)) && newEnd.isAfter(dayjs(b.start))
-    })
-    if (overlaps) return false
-
-    // 更新活动块位置
-    blocks.value[idx] = { ...block, start: newStart.toISOString(), end: newEnd.toISOString() }
-
-    // 重建该坐席的 Work 块
-    rebuildWorkBlocks(block.agentId)
-    return true
-  }
-
-  function resizeBlock(id: string, edge: 'left' | 'right', deltaMinutes: number): boolean {
-    const idx = blocks.value.findIndex((b) => b.id === id)
-    if (idx === -1 || !blocks.value[idx].editable) return false
-    const block = blocks.value[idx]
-
-    let newStart = dayjs(block.start)
-    let newEnd = dayjs(block.end)
-
-    if (edge === 'left') {
-      newStart = snapTime(newStart.add(deltaMinutes, 'minute'))
-    } else {
-      newEnd = snapTime(newEnd.add(deltaMinutes, 'minute'))
-    }
-
-    if (newEnd.diff(newStart, 'minute') < 15) return false
-
-    blocks.value[idx] = { ...block, start: newStart.toISOString(), end: newEnd.toISOString() }
-    rebuildWorkBlocks(block.agentId)
-    return true
-  }
-
-  function deleteBlock(id: string) {
-    const block = blocks.value.find((b) => b.id === id)
-    if (!block || !block.editable) return
-    const agentId = block.agentId
-    blocks.value = blocks.value.filter((b) => b.id !== id)
-    if (selectedBlockId.value === id) selectedBlockId.value = null
-    rebuildWorkBlocks(agentId)
-  }
-
-  function addBlock(agentId: string, type: ActivityType, startISO: string): string | null {
-    const agent = agents.value.find((a) => String(a.id) === agentId)
-    if (!agent) return null
-
-    const start = snapTime(dayjs(startISO))
-    const end = start.add(30, 'minute')
-
-    const overlaps = blocks.value.some((b) => {
-      if (b.agentId !== agentId || b.type === 'work') return false
-      return start.isBefore(dayjs(b.end)) && end.isAfter(dayjs(b.start))
-    })
-    if (overlaps) return null
-
-    const id = `new-${Date.now()}`
-    blocks.value.push({
-      id,
-      agentId,
-      type,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      editable: true,
-    })
-    selectedBlockId.value = id
-    rebuildWorkBlocks(agentId)
-    return id
-  }
-
-  /** 拖拽预览：直接修改位置 + 重建 Work */
   function updateBlockPreview(id: string, start: string, end: string) {
     const idx = blocks.value.findIndex((b) => b.id === id)
     if (idx === -1) return
     const agentId = blocks.value[idx].agentId
     blocks.value[idx] = { ...blocks.value[idx], start, end }
-    rebuildWorkBlocks(agentId)
+    rebuildWorkBlocksLocal(agentId)
   }
 
-  // ========== Work 块重建 ==========
+  // ========== EditIntent API 调用 ==========
 
   /**
-   * 重新计算某坐席的 Work 块
-   * 删除该坐席所有旧 Work 块，然后在活动块间隙重新填充
+   * 通过后端 API 提交编辑意图
+   * 成功后重新加载时间轴数据
    */
-  function rebuildWorkBlocks(agentId: string) {
+  async function commitEdit(intent: Omit<EditIntentCommand, 'versionNo'>): Promise<{ ok: boolean; validation?: any }> {
+    if (!currentPlanId.value) return { ok: false }
+
+    try {
+      const cmd: EditIntentCommand = {
+        ...intent,
+        versionNo: versionNo.value,
+      }
+      const result = await api.commitEdit(currentPlanId.value, cmd)
+
+      if (result.status === 'committed') {
+        versionNo.value = result.versionNo
+        // 重新加载该天数据
+        await loadTimeline(currentPlanId.value, currentDate.value)
+        return { ok: true, validation: result.validation }
+      }
+
+      // 被拒绝（有错误或未确认的 warning）
+      lastValidation.value = result.validation
+      // 回滚本地预览：重新加载
+      await loadTimeline(currentPlanId.value, currentDate.value)
+      return { ok: false, validation: result.validation }
+    } catch (e) {
+      console.error('Edit failed:', e)
+      // 回滚
+      if (currentPlanId.value) await loadTimeline(currentPlanId.value, currentDate.value)
+      return { ok: false }
+    }
+  }
+
+  /** 确认告警后强制提交 */
+  async function confirmAndCommit(intent: Omit<EditIntentCommand, 'versionNo'>): Promise<{ ok: boolean; validation?: any }> {
+    if (!currentPlanId.value) return { ok: false }
+    const cmd: EditIntentCommand = { ...intent, versionNo: versionNo.value, confirmWarnings: true }
+    const result = await api.commitEdit(currentPlanId.value, cmd)
+
+    if (result.status === 'committed') {
+      versionNo.value = result.versionNo
+      await loadTimeline(currentPlanId.value, currentDate.value)
+      return { ok: true }
+    }
+    lastValidation.value = result.validation
+    await loadTimeline(currentPlanId.value, currentDate.value)
+    return { ok: false, validation: result.validation }
+  }
+
+  // ========== 便捷方法（调 commitEdit） ==========
+
+  async function moveBlock(id: string, deltaMinutes: number): Promise<boolean> {
+    const block = blocks.value.find((b) => b.id === id)
+    if (!block || !block.editable) return false
+
+    const duration = dayjs(block.end).diff(dayjs(block.start), 'minute')
+    const newStart = snapTime(dayjs(block.start).add(deltaMinutes, 'minute'))
+    const newEnd = newStart.add(duration, 'minute')
+
+    // 找到 entryId（从 blocks 数据中）
+    const entryId = findEntryId(block.agentId)
+    if (!entryId) return false
+
+    const result = await commitEdit({
+      intentType: 'MOVE_BLOCK',
+      assignmentId: entryId,
+      blockId: Number(id),
+      targetRange: { startTime: newStart.toISOString(), endTime: newEnd.toISOString() },
+    })
+    return result.ok
+  }
+
+  async function resizeBlock(id: string, edge: 'left' | 'right', deltaMinutes: number): Promise<boolean> {
+    const block = blocks.value.find((b) => b.id === id)
+    if (!block || !block.editable) return false
+
+    let newStart = dayjs(block.start)
+    let newEnd = dayjs(block.end)
+    if (edge === 'left') newStart = snapTime(newStart.add(deltaMinutes, 'minute'))
+    else newEnd = snapTime(newEnd.add(deltaMinutes, 'minute'))
+
+    const entryId = findEntryId(block.agentId)
+    if (!entryId) return false
+
+    const result = await commitEdit({
+      intentType: edge === 'left' ? 'RESIZE_LEFT' : 'RESIZE_RIGHT',
+      assignmentId: entryId,
+      blockId: Number(id),
+      targetRange: { startTime: newStart.toISOString(), endTime: newEnd.toISOString() },
+    })
+    return result.ok
+  }
+
+  async function deleteBlock(id: string): Promise<boolean> {
+    const block = blocks.value.find((b) => b.id === id)
+    if (!block || !block.editable) return false
+
+    const entryId = findEntryId(block.agentId)
+    if (!entryId) return false
+
+    // 先本地移除（乐观更新）
+    blocks.value = blocks.value.filter((b) => b.id !== id)
+    if (selectedBlockId.value === id) selectedBlockId.value = null
+    rebuildWorkBlocksLocal(block.agentId)
+
+    const result = await commitEdit({
+      intentType: 'DELETE_BLOCK',
+      assignmentId: entryId,
+      blockId: Number(id),
+    })
+    return result.ok
+  }
+
+  async function addBlock(agentId: string, type: ActivityType, startISO: string): Promise<string | null> {
+    const start = snapTime(dayjs(startISO))
+    const end = start.add(30, 'minute')
+
+    const entryId = findEntryId(agentId)
+    if (!entryId) return null
+
+    // 查找活动 ID
+    const activities = await api.getActivities()
+    const act = activities.find((a: any) => a.code?.toLowerCase() === type || a.name?.toLowerCase().replace(' ', '_') === type)
+    if (!act) return null
+
+    const result = await commitEdit({
+      intentType: 'INSERT_ACTIVITY',
+      assignmentId: entryId,
+      activityId: act.id,
+      targetRange: { startTime: start.toISOString(), endTime: end.toISOString() },
+    })
+    return result.ok ? 'ok' : null
+  }
+
+  // ========== 辅助 ==========
+
+  /** 根据 agentId 找到当天的 entryId */
+  function findEntryId(agentId: string): number | null {
+    const block = blocks.value.find((b) => b.agentId === agentId && (b as any).entryId)
+    return block ? (block as any).entryId : null
+  }
+
+  /** 本地 Work 块重建（仅用于拖拽预览） */
+  function rebuildWorkBlocksLocal(agentId: string) {
     const agent = agents.value.find((a) => String(a.id) === agentId)
     if (!agent) return
 
-    // 移除旧 Work 块
     blocks.value = blocks.value.filter((b) => !(b.agentId === agentId && b.type === 'work'))
 
-    // 获取该坐席的活动块，按时间排序
     const agentBlocks = blocks.value
       .filter((b) => b.agentId === agentId)
       .sort((a, b) => dayjs(a.start).diff(dayjs(b.start)))
 
-    // 班次边界
     const datePrefix = currentDate.value
     const [sh, sm] = agent.shiftStart.split(':').map(Number)
     const [eh, em] = agent.shiftEnd.split(':').map(Number)
@@ -209,52 +241,38 @@ export const useScheduleStore = defineStore('schedule', () => {
     const shiftEnd = dayjs(datePrefix).add(eh, 'hour').add(em, 'minute')
 
     let cursor = shiftStart
-    const newWorkBlocks: DisplayBlock[] = []
+    const newWork: DisplayBlock[] = []
 
     for (const block of agentBlocks) {
       const bStart = dayjs(block.start)
       if (bStart.isAfter(cursor)) {
-        newWorkBlocks.push({
+        newWork.push({
           id: `work-${agentId}-${cursor.valueOf()}`,
-          agentId,
-          type: 'work',
-          start: cursor.toISOString(),
-          end: bStart.toISOString(),
+          agentId, type: 'work',
+          start: cursor.toISOString(), end: bStart.toISOString(),
           editable: false,
         })
       }
       const bEnd = dayjs(block.end)
       if (bEnd.isAfter(cursor)) cursor = bEnd
     }
-
     if (cursor.isBefore(shiftEnd)) {
-      newWorkBlocks.push({
+      newWork.push({
         id: `work-${agentId}-${cursor.valueOf()}`,
-        agentId,
-        type: 'work',
-        start: cursor.toISOString(),
-        end: shiftEnd.toISOString(),
+        agentId, type: 'work',
+        start: cursor.toISOString(), end: shiftEnd.toISOString(),
         editable: false,
       })
     }
-
-    blocks.value.push(...newWorkBlocks)
+    blocks.value.push(...newWork)
   }
 
   return {
-    agents,
-    blocks,
-    selectedBlockId,
-    loading,
-    currentPlanId,
-    currentDate,
-    loadTimeline,
-    getBlocksForAgent,
-    selectBlock,
-    moveBlock,
-    resizeBlock,
-    deleteBlock,
-    addBlock,
+    agents, blocks, selectedBlockId, loading,
+    currentPlanId, currentDate, versionNo, lastValidation,
+    loadTimeline, selectBlock,
     updateBlockPreview,
+    commitEdit, confirmAndCommit,
+    moveBlock, resizeBlock, deleteBlock, addBlock,
   }
 })

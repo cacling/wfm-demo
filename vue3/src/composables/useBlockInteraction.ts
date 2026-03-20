@@ -52,20 +52,20 @@ export function useBlockInteraction() {
       store.updateBlockPreview(blockId, newStart.toISOString(), newEnd.toISOString())
     }
 
-    const onUp = (ev: PointerEvent) => {
+    const onUp = async (ev: PointerEvent) => {
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
 
-      // 回滚到原始位置
+      // 回滚到原始位置（后端 commit 成功后会重新加载）
       store.updateBlockPreview(blockId, origStart, origEnd)
 
       const dx = ev.clientX - startX
       const deltaMinutes = dx / PX_PER_MINUTE
 
       if (mode === 'drag') {
-        store.moveBlock(blockId, deltaMinutes)
+        await store.moveBlock(blockId, deltaMinutes)
       } else {
-        store.resizeBlock(blockId, mode === 'resize-left' ? 'left' : 'right', deltaMinutes)
+        await store.resizeBlock(blockId, mode === 'resize-left' ? 'left' : 'right', deltaMinutes)
       }
     }
 
