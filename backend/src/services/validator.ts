@@ -105,7 +105,7 @@ export function validatePlanDay(planId: number, date: string): ValidationResult 
       if (contract.lunchRequired) {
         const hasLunch = blocks.some((b) => {
           const activity = activityMap.get(b.activityId)
-          return activity?.name === 'Lunch'
+          return activity?.code === 'LUNCH'
         })
         if (!hasLunch) {
           items.push({
@@ -122,7 +122,7 @@ export function validatePlanDay(planId: number, date: string): ValidationResult 
       // === 3. 合同校验：最小休息时间 ===
       const breakMinutes = blocks.reduce((sum, b) => {
         const activity = activityMap.get(b.activityId)
-        if (activity?.name === 'Break') {
+        if (activity?.code === 'BREAK') {
           return sum + dayjs(b.endTime).diff(dayjs(b.startTime), 'minute')
         }
         return sum
@@ -199,7 +199,7 @@ export function validatePlanDay(planId: number, date: string): ValidationResult 
     const reqStart = dayjs(req.startTime)
     const reqEnd = dayjs(req.endTime)
     // 找 Work 活动 ID
-    const workActivity = allActivities.find((a) => a.name === 'Work')
+    const workActivity = allActivities.find((a) => a.code === 'WORK')
     if (!workActivity) continue
 
     // 统计该时段有多少人在做 Work

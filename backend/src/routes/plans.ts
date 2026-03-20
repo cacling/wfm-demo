@@ -6,7 +6,7 @@
  */
 import { Hono } from 'hono'
 import { db } from '../db'
-import { schedulePlans, scheduleEntries, scheduleBlocks, scheduleChanges, agents, activities, groups, contracts, shifts } from '../db/schema'
+import { schedulePlans, scheduleEntries, scheduleBlocks, changeOperations, changeItems, agents, activities, groups, contracts, shifts } from '../db/schema'
 import { eq, and } from 'drizzle-orm'
 import { generateSchedule } from '../services/scheduler'
 
@@ -141,12 +141,14 @@ router.get('/:id/timeline', (c) => {
         entryId: entry.entryId,
         agentId: entry.agentId,
         activityId: block.activityId,
-        type: activity?.name.toLowerCase().replace(' ', '_') || 'work',
+        type: activity?.code?.toLowerCase() || 'work',
         name: activity?.name || 'Unknown',
         color: activity?.color || '#4ade80',
         start: block.startTime,
         end: block.endTime,
-        editable: activity ? activity.name !== 'Work' : false,
+        source: block.source,
+        locked: block.locked,
+        editable: activity ? activity.code !== 'WORK' : false,
       })
     }
   }
@@ -210,22 +212,16 @@ router.post('/:id/validate', async (c) => {
 /** 获取编辑历史 */
 router.get('/:id/changes', (c) => {
   const planId = Number(c.req.param('id'))
-  const rows = db.select({
-    id: scheduleChanges.id,
-    agentId: scheduleChanges.agentId,
-    agentName: agents.name,
-    date: scheduleChanges.date,
-    changeType: scheduleChanges.changeType,
-    beforeJson: scheduleChanges.beforeJson,
-    afterJson: scheduleChanges.afterJson,
-    createdAt: scheduleChanges.createdAt,
-  })
-    .from(scheduleChanges)
-    .leftJoin(agents, eq(scheduleChanges.agentId, agents.id))
-    .where(eq(scheduleChanges.planId, planId))
-    .orderBy(scheduleChanges.createdAt)
+  const ops = db.select().from(changeOperations)
+    .where(eq(changeOperations.planId, planId))
     .all()
-  return c.json(rows)
+  const result = ops.map((op) => {
+    const items = db.select().from(changeItems)
+      .where(eq(changeItems.operationId, op.id))
+      .all()
+    return { ...op, items }
+  })
+  return c.json(result)
 })
 
 export default router

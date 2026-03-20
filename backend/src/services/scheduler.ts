@@ -113,6 +113,7 @@ export function generateSchedule(opts: GenerateOptions) {
         agentId: agent.id,
         date: dateStr,
         shiftId: selectedShiftId,
+        status: 'editable',
       }).returning().all()
       totalEntries++
 
@@ -133,6 +134,8 @@ export function generateSchedule(opts: GenerateOptions) {
           activityId: tmpl.activityId,
           startTime: blockStart.toISOString(),
           endTime: blockEnd.toISOString(),
+          source: 'algorithm',
+          locked: false,
         }).run()
         totalBlocks++
       }
@@ -147,7 +150,7 @@ export function generateSchedule(opts: GenerateOptions) {
       for (const ex of agentExceptions) {
         // 找到 Work 活动的 ID（priority 最低的）
         const workActivity = db.select().from(s.activities)
-          .where(eq(s.activities.name, 'Work'))
+          .where(eq(s.activities.code, 'WORK'))
           .get()
         if (!workActivity) continue
 
@@ -180,6 +183,8 @@ export function generateSchedule(opts: GenerateOptions) {
               activityId: workActivity.id,
               startTime: exEnd.toISOString(),
               endTime: bEnd.toISOString(),
+              source: 'algorithm',
+              locked: false,
             }).run()
             totalBlocks++
           }
@@ -191,6 +196,8 @@ export function generateSchedule(opts: GenerateOptions) {
           activityId: ex.activityId,
           startTime: ex.startTime,
           endTime: ex.endTime,
+          source: 'exception',
+          locked: false,
         }).run()
         totalBlocks++
       }
