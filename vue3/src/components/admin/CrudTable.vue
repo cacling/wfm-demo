@@ -9,17 +9,22 @@
 -->
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useI18n } from '../../i18n'
+import { useI18n, type Lang } from '../../i18n'
 
-const { t } = useI18n()
+const { t, lang } = useI18n()
 const BASE = 'http://localhost:3210/api'
 
+type Bil = Record<Lang, string>
+
 const props = defineProps<{
-  title: string
+  title: Bil
   apiPath: string
-  columns: { key: string; label: string; width?: string }[]
-  formFields: { key: string; label: string; type: 'text' | 'number' | 'boolean' | 'select' | 'color'; options?: { value: any; label: string }[] }[]
+  columns: { key: string; label: Bil; width?: string }[]
+  formFields: { key: string; label: Bil; type: 'text' | 'number' | 'boolean' | 'select' | 'color'; options?: { value: any; label: string }[] }[]
 }>()
+
+/** 取当前语言的文字 */
+function l(bil: Bil): string { return bil[lang.value] }
 
 const rows = ref<any[]>([])
 const loading = ref(false)
@@ -89,8 +94,8 @@ onMounted(fetchData)
   <div class="h-full flex flex-col">
     <!-- Header -->
     <div class="h-12 bg-white border-b border-gray-200 flex items-center px-4 gap-3 flex-shrink-0">
-      <h2 class="text-sm font-bold text-gray-800">{{ title }}</h2>
-      <span class="text-xs text-gray-400">{{ rows.length }} records</span>
+      <h2 class="text-sm font-bold text-gray-800">{{ l(title) }}</h2>
+      <span class="text-xs text-gray-400">{{ rows.length }} {{ t('records') }}</span>
       <div class="flex-1" />
       <button
         class="px-3 py-1 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600"
@@ -113,7 +118,7 @@ onMounted(fetchData)
               :key="col.key"
               class="text-left px-3 py-2 text-xs font-semibold text-gray-500"
               :style="col.width ? { width: col.width } : {}"
-            >{{ col.label }}</th>
+            >{{ l(col.label) }}</th>
             <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-24">{{ t('actions') }}</th>
           </tr>
         </thead>
@@ -150,11 +155,11 @@ onMounted(fetchData)
     <div v-if="showForm" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-lg shadow-xl w-[440px] max-h-[80vh] overflow-auto">
         <div class="px-5 py-4 border-b border-gray-200">
-          <h3 class="text-sm font-bold text-gray-800">{{ editingId ? t('edit') : t('create') }} {{ title }}</h3>
+          <h3 class="text-sm font-bold text-gray-800">{{ editingId ? t('edit') : t('create') }} {{ l(title) }}</h3>
         </div>
         <div class="px-5 py-4 space-y-3">
           <div v-for="field in formFields" :key="field.key">
-            <label class="block text-xs font-medium text-gray-600 mb-1">{{ field.label }}</label>
+            <label class="block text-xs font-medium text-gray-600 mb-1">{{ l(field.label) }}</label>
             <input
               v-if="field.type === 'text'"
               v-model="formData[field.key]"
@@ -174,7 +179,7 @@ onMounted(fetchData)
             />
             <label v-else-if="field.type === 'boolean'" class="flex items-center gap-2">
               <input v-model="formData[field.key]" type="checkbox" class="accent-blue-500" />
-              <span class="text-sm text-gray-700">{{ field.label }}</span>
+              <span class="text-sm text-gray-700">{{ l(field.label) }}</span>
             </label>
             <select
               v-else-if="field.type === 'select'"

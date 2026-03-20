@@ -40,15 +40,15 @@ const total = computed(() =>
 )
 
 const levelConfig = {
-  error: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', dot: 'bg-red-500', label: 'Error' },
-  warning: { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', dot: 'bg-yellow-500', label: 'Warning' },
-  info: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', dot: 'bg-blue-500', label: 'Info' },
+  error: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', dot: 'bg-red-500', labelKey: 'error_label' },
+  warning: { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', dot: 'bg-yellow-500', labelKey: 'warning_label' },
+  info: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', dot: 'bg-blue-500', labelKey: 'info_label' },
 }
 
 const allItems = computed(() => [
-  ...props.result.errors.map((i) => ({ ...i, config: levelConfig.error })),
-  ...props.result.warnings.map((i) => ({ ...i, config: levelConfig.warning })),
-  ...props.result.infos.map((i) => ({ ...i, config: levelConfig.info })),
+  ...props.result.errors.map((i: any) => ({ ...i, config: levelConfig.error })),
+  ...props.result.warnings.map((i: any) => ({ ...i, config: levelConfig.warning })),
+  ...props.result.infos.map((i: any) => ({ ...i, config: levelConfig.info })),
 ])
 </script>
 
@@ -83,7 +83,7 @@ const allItems = computed(() => [
         >
           <div class="flex items-center gap-2">
             <div class="w-2 h-2 rounded-full flex-shrink-0" :class="item.config.dot" />
-            <span class="font-semibold" :class="item.config.text">{{ item.config.label }}</span>
+            <span class="font-semibold" :class="item.config.text">{{ t(item.config.labelKey) }}</span>
             <span v-if="item.agentName" class="text-gray-500">{{ item.agentName }}</span>
             <span class="text-gray-400 ml-auto">{{ item.ruleType }}</span>
           </div>

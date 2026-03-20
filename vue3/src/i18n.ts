@@ -57,6 +57,9 @@ const messages: Record<string, Record<Lang, string>> = {
   errors: { zh: '错误', en: 'errors' },
   warnings: { zh: '告警', en: 'warnings' },
   infos: { zh: '提示', en: 'infos' },
+  error_label: { zh: '错误', en: 'Error' },
+  warning_label: { zh: '告警', en: 'Warning' },
+  info_label: { zh: '提示', en: 'Info' },
   accept_warnings: { zh: '确认告警并保存', en: 'Accept Warnings & Save' },
   all_checks_passed: { zh: '全部检查通过', en: 'All checks passed. No issues found.' },
 
