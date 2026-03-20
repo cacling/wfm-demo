@@ -1,111 +1,129 @@
 /**
- * schedule.ts — Pinia 状态管理（排班数据的唯一数据源）
+ * schedule.ts — Pinia 状态管理
  *
- * 使用 Composition API 风格的 defineStore，管理：
- * - agents:          坐席列表（只读）
- * - activities:      活动列表（可增删改）
- * - selectedBlockId: 当前选中的块 ID
+ * Phase 2 改造：从后端 API 加载排班数据，不再使用 mock-data。
  *
- * 所有对活动的修改（移动/拉伸/新增/删除）都通过这里的 action 执行，
- * 修改 activities 后，依赖它的 computed（如 TimelineBody 中的 allBlocks）
- * 会自动触发 Work 块重新派生。
+ * 数据流：
+ * 1. loadTimeline(planId, date) → 调 GET /api/plans/:id/timeline
+ * 2. 后端返回 agents + blocks（含 Work 块）
+ * 3. 前端直接渲染所有块（不再本地派生 Work）
+ * 4. 拖拽/拉伸时：本地预览 → 松手后调后端 API 提交（Phase 3）
+ *    当前 Phase 2 仍在前端做本地校验和提交
  */
 
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
-import type { Agent, Activity, ActivityType, DisplayBlock } from '../types'
-import { agents as mockAgents, activities as mockActivities } from '../mock-data'
-import { deriveDisplayBlocks } from '../utils/rules'
-import { snapTime } from '../utils/time'
+import type { DisplayBlock, ActivityType } from '../types'
+import { snapTime, setBaseDate } from '../utils/time'
+import { api } from '../api'
 
-/** 新增活动时的自增 ID 起始值 */
-let nextId = 1000
+/** 从后端返回的坐席信息 */
+interface TimelineAgent {
+  id: number
+  name: string
+  shift: string
+  shiftStart: string  // HH:mm
+  shiftEnd: string
+  groupName: string | null
+  contractName: string | null
+}
 
 export const useScheduleStore = defineStore('schedule', () => {
   // ========== 状态 ==========
-  const agents = ref<Agent[]>(mockAgents)
-  const activities = ref<Activity[]>([...mockActivities])
+  const agents = ref<TimelineAgent[]>([])
+  const blocks = ref<DisplayBlock[]>([])
   const selectedBlockId = ref<string | null>(null)
+  const loading = ref(false)
+  const currentPlanId = ref<number | null>(null)
+  const currentDate = ref<string>('')
 
-  // ========== 派生查询 ==========
+  // ========== API 加载 ==========
 
-  /**
-   * 获取某个坐席的所有展示块（Work + Activities）
-   * 每次 activities 变化时调用方的 computed 会自动重新计算
-   */
-  function getDisplayBlocks(agentId: string): DisplayBlock[] {
-    const agent = agents.value.find((a) => a.id === agentId)
-    if (!agent) return []
-    return deriveDisplayBlocks(agent, activities.value)
+  /** 从后端加载某天的时间轴数据 */
+  async function loadTimeline(planId: number, date: string) {
+    loading.value = true
+    try {
+      setBaseDate(date)  // 设置时间轴基准日期
+      const data = await api.getTimeline(planId, date)
+      agents.value = data.agents
+      // 将后端返回的块转为 DisplayBlock 格式
+      blocks.value = data.blocks.map((b: any) => ({
+        id: String(b.id),
+        agentId: String(b.agentId),
+        type: b.type,
+        start: b.start,
+        end: b.end,
+        editable: b.editable,
+        color: b.color,
+      }))
+      currentPlanId.value = planId
+      currentDate.value = date
+    } finally {
+      loading.value = false
+    }
   }
 
-  // ========== 选中操作 ==========
+  // ========== 按坐席分组获取块 ==========
+
+  function getBlocksForAgent(agentId: number): DisplayBlock[] {
+    return blocks.value.filter((b) => b.agentId === String(agentId))
+  }
+
+  // ========== 选中 ==========
 
   function selectBlock(id: string | null) {
     selectedBlockId.value = id
   }
 
-  // ========== 移动活动 ==========
+  // ========== 本地编辑（拖拽/拉伸/增删） ==========
+  // Phase 2: 仍在前端做本地校验
+  // Phase 3: 改为调后端 API
 
-  /**
-   * 将活动整体平移 deltaMinutes 分钟
-   * 会自动吸附到 15 分钟粒度，并校验：
-   * - 不超出坐席班次边界
-   * - 不与同坐席其他活动重叠
-   *
-   * @returns true=移动成功，false=校验不通过（位置不变）
-   */
-  function moveActivity(id: string, deltaMinutes: number): boolean {
-    const idx = activities.value.findIndex((a) => a.id === id)
-    if (idx === -1) return false
-    const activity = activities.value[idx]
+  function moveBlock(id: string, deltaMinutes: number): boolean {
+    const idx = blocks.value.findIndex((b) => b.id === id)
+    if (idx === -1 || !blocks.value[idx].editable) return false
+    const block = blocks.value[idx]
 
-    const agent = agents.value.find((a) => a.id === activity.agentId)
+    const agent = agents.value.find((a) => String(a.id) === block.agentId)
     if (!agent) return false
 
-    // 计算新位置：保持时长不变，起点偏移后吸附
-    const duration = dayjs(activity.end).diff(dayjs(activity.start), 'minute')
-    const newStart = snapTime(dayjs(activity.start).add(deltaMinutes, 'minute'))
+    const duration = dayjs(block.end).diff(dayjs(block.start), 'minute')
+    const newStart = snapTime(dayjs(block.start).add(deltaMinutes, 'minute'))
     const newEnd = newStart.add(duration, 'minute')
 
-    // 校验：不能超出班次范围
-    if (newStart.isBefore(dayjs(agent.shiftStart))) return false
-    if (newEnd.isAfter(dayjs(agent.shiftEnd))) return false
+    // 构造当天的班次绝对时间边界
+    const datePrefix = currentDate.value  // YYYY-MM-DD
+    const [sh, sm] = agent.shiftStart.split(':').map(Number)
+    const [eh, em] = agent.shiftEnd.split(':').map(Number)
+    const shiftStartAbs = dayjs(datePrefix).add(sh, 'hour').add(sm, 'minute')
+    const shiftEndAbs = dayjs(datePrefix).add(eh, 'hour').add(em, 'minute')
 
-    // 校验：不能与同坐席的其他活动重叠
-    const overlaps = activities.value.some((a) => {
-      if (a.id === id || a.agentId !== activity.agentId) return false
-      return newStart.isBefore(dayjs(a.end)) && newEnd.isAfter(dayjs(a.start))
+    if (newStart.isBefore(shiftStartAbs)) return false
+    if (newEnd.isAfter(shiftEndAbs)) return false
+
+    // 不与同坐席其他非 Work 块重叠
+    const overlaps = blocks.value.some((b) => {
+      if (b.id === id || b.agentId !== block.agentId || b.type === 'work') return false
+      return newStart.isBefore(dayjs(b.end)) && newEnd.isAfter(dayjs(b.start))
     })
     if (overlaps) return false
 
-    // 通过校验 → 更新位置
-    activities.value[idx] = {
-      ...activity,
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
-    }
+    // 更新活动块位置
+    blocks.value[idx] = { ...block, start: newStart.toISOString(), end: newEnd.toISOString() }
+
+    // 重建该坐席的 Work 块
+    rebuildWorkBlocks(block.agentId)
     return true
   }
 
-  // ========== 拉伸活动 ==========
+  function resizeBlock(id: string, edge: 'left' | 'right', deltaMinutes: number): boolean {
+    const idx = blocks.value.findIndex((b) => b.id === id)
+    if (idx === -1 || !blocks.value[idx].editable) return false
+    const block = blocks.value[idx]
 
-  /**
-   * 拉伸活动的左边或右边
-   * edge='left'  → 调整开始时间（右边不动）
-   * edge='right' → 调整结束时间（左边不动）
-   */
-  function resizeActivity(id: string, edge: 'left' | 'right', deltaMinutes: number): boolean {
-    const idx = activities.value.findIndex((a) => a.id === id)
-    if (idx === -1) return false
-    const activity = activities.value[idx]
-
-    const agent = agents.value.find((a) => a.id === activity.agentId)
-    if (!agent) return false
-
-    let newStart = dayjs(activity.start)
-    let newEnd = dayjs(activity.end)
+    let newStart = dayjs(block.start)
+    let newEnd = dayjs(block.end)
 
     if (edge === 'left') {
       newStart = snapTime(newStart.add(deltaMinutes, 'minute'))
@@ -113,92 +131,130 @@ export const useScheduleStore = defineStore('schedule', () => {
       newEnd = snapTime(newEnd.add(deltaMinutes, 'minute'))
     }
 
-    // 校验：最小 15 分钟
     if (newEnd.diff(newStart, 'minute') < 15) return false
-    // 校验：不超出班次
-    if (newStart.isBefore(dayjs(agent.shiftStart))) return false
-    if (newEnd.isAfter(dayjs(agent.shiftEnd))) return false
 
-    // 校验：不重叠
-    const overlaps = activities.value.some((a) => {
-      if (a.id === id || a.agentId !== activity.agentId) return false
-      return newStart.isBefore(dayjs(a.end)) && newEnd.isAfter(dayjs(a.start))
-    })
-    if (overlaps) return false
-
-    activities.value[idx] = {
-      ...activity,
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
-    }
+    blocks.value[idx] = { ...block, start: newStart.toISOString(), end: newEnd.toISOString() }
+    rebuildWorkBlocks(block.agentId)
     return true
   }
 
-  // ========== 删除活动 ==========
-
-  /** 删除活动 → 该时间段自动变回 Work（因为 Work 是派生的） */
-  function deleteActivity(id: string) {
-    activities.value = activities.value.filter((a) => a.id !== id)
+  function deleteBlock(id: string) {
+    const block = blocks.value.find((b) => b.id === id)
+    if (!block || !block.editable) return
+    const agentId = block.agentId
+    blocks.value = blocks.value.filter((b) => b.id !== id)
     if (selectedBlockId.value === id) selectedBlockId.value = null
+    rebuildWorkBlocks(agentId)
   }
 
-  // ========== 新增活动 ==========
-
-  /**
-   * 在指定时间点新增一个 30 分钟的活动
-   * @param agentId  - 坐席 ID
-   * @param type     - 活动类型
-   * @param startISO - 起始时间（会吸附到 15 分钟）
-   * @returns 新活动的 ID，如果校验失败返回 null
-   */
-  function addActivity(agentId: string, type: ActivityType, startISO: string): string | null {
-    const agent = agents.value.find((a) => a.id === agentId)
+  function addBlock(agentId: string, type: ActivityType, startISO: string): string | null {
+    const agent = agents.value.find((a) => String(a.id) === agentId)
     if (!agent) return null
 
     const start = snapTime(dayjs(startISO))
-    const end = start.add(30, 'minute')  // 默认时长 30 分钟
+    const end = start.add(30, 'minute')
 
-    // 校验
-    if (start.isBefore(dayjs(agent.shiftStart))) return null
-    if (end.isAfter(dayjs(agent.shiftEnd))) return null
-
-    const overlaps = activities.value.some((a) => {
-      if (a.agentId !== agentId) return false
-      return start.isBefore(dayjs(a.end)) && end.isAfter(dayjs(a.start))
+    const overlaps = blocks.value.some((b) => {
+      if (b.agentId !== agentId || b.type === 'work') return false
+      return start.isBefore(dayjs(b.end)) && end.isAfter(dayjs(b.start))
     })
     if (overlaps) return null
 
-    const id = `act${nextId++}`
-    activities.value.push({ id, agentId, type, start: start.toISOString(), end: end.toISOString() })
-    selectedBlockId.value = id  // 自动选中新建的活动
+    const id = `new-${Date.now()}`
+    blocks.value.push({
+      id,
+      agentId,
+      type,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      editable: true,
+    })
+    selectedBlockId.value = id
+    rebuildWorkBlocks(agentId)
     return id
   }
 
-  // ========== 拖拽预览 ==========
+  /** 拖拽预览：直接修改位置 + 重建 Work */
+  function updateBlockPreview(id: string, start: string, end: string) {
+    const idx = blocks.value.findIndex((b) => b.id === id)
+    if (idx === -1) return
+    const agentId = blocks.value[idx].agentId
+    blocks.value[idx] = { ...blocks.value[idx], start, end }
+    rebuildWorkBlocks(agentId)
+  }
+
+  // ========== Work 块重建 ==========
 
   /**
-   * 拖拽过程中的实时预览（直接修改位置，不做校验）
-   * 松手后会先回滚到原始位置，再通过 moveActivity/resizeActivity 做正式提交
+   * 重新计算某坐席的 Work 块
+   * 删除该坐席所有旧 Work 块，然后在活动块间隙重新填充
    */
-  function updateActivityPreview(id: string, start: string, end: string) {
-    const idx = activities.value.findIndex((a) => a.id === id)
-    if (idx === -1) return
-    activities.value[idx] = { ...activities.value[idx], start, end }
+  function rebuildWorkBlocks(agentId: string) {
+    const agent = agents.value.find((a) => String(a.id) === agentId)
+    if (!agent) return
+
+    // 移除旧 Work 块
+    blocks.value = blocks.value.filter((b) => !(b.agentId === agentId && b.type === 'work'))
+
+    // 获取该坐席的活动块，按时间排序
+    const agentBlocks = blocks.value
+      .filter((b) => b.agentId === agentId)
+      .sort((a, b) => dayjs(a.start).diff(dayjs(b.start)))
+
+    // 班次边界
+    const datePrefix = currentDate.value
+    const [sh, sm] = agent.shiftStart.split(':').map(Number)
+    const [eh, em] = agent.shiftEnd.split(':').map(Number)
+    const shiftStart = dayjs(datePrefix).add(sh, 'hour').add(sm, 'minute')
+    const shiftEnd = dayjs(datePrefix).add(eh, 'hour').add(em, 'minute')
+
+    let cursor = shiftStart
+    const newWorkBlocks: DisplayBlock[] = []
+
+    for (const block of agentBlocks) {
+      const bStart = dayjs(block.start)
+      if (bStart.isAfter(cursor)) {
+        newWorkBlocks.push({
+          id: `work-${agentId}-${cursor.valueOf()}`,
+          agentId,
+          type: 'work',
+          start: cursor.toISOString(),
+          end: bStart.toISOString(),
+          editable: false,
+        })
+      }
+      const bEnd = dayjs(block.end)
+      if (bEnd.isAfter(cursor)) cursor = bEnd
+    }
+
+    if (cursor.isBefore(shiftEnd)) {
+      newWorkBlocks.push({
+        id: `work-${agentId}-${cursor.valueOf()}`,
+        agentId,
+        type: 'work',
+        start: cursor.toISOString(),
+        end: shiftEnd.toISOString(),
+        editable: false,
+      })
+    }
+
+    blocks.value.push(...newWorkBlocks)
   }
 
   return {
-    // 状态
     agents,
-    activities,
+    blocks,
     selectedBlockId,
-    // 查询
-    getDisplayBlocks,
-    // 操作
+    loading,
+    currentPlanId,
+    currentDate,
+    loadTimeline,
+    getBlocksForAgent,
     selectBlock,
-    moveActivity,
-    resizeActivity,
-    deleteActivity,
-    addActivity,
-    updateActivityPreview,
+    moveBlock,
+    resizeBlock,
+    deleteBlock,
+    addBlock,
+    updateBlockPreview,
   }
 })

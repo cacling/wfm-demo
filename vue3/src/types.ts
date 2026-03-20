@@ -42,28 +42,35 @@ export type BlockType = 'work' | ActivityType
 export interface DisplayBlock {
   id: string
   agentId: string
-  type: BlockType
+  type: string       // 后端返回的活动类型名（小写下划线）
   start: string
   end: string
   editable: boolean
+  color?: string     // 后端返回的颜色（优先于 BLOCK_COLORS 映射）
 }
 
-/** 块类型 → 背景颜色映射 */
-export const BLOCK_COLORS: Record<BlockType, string> = {
-  work: '#4ade80',       // 绿色
-  break: '#facc15',      // 黄色
-  meeting: '#3b82f6',    // 蓝色
-  offline: '#f97316',    // 橙色
-  training: '#818cf8',   // 紫色
-  other: '#fb923c',      // 浅橙色
+/** 块类型 → 背景颜色映射（兜底色，后端返回的 color 优先） */
+export const BLOCK_COLORS: Record<string, string> = {
+  work: '#4ade80',
+  break: '#facc15',
+  lunch: '#fb923c',
+  meeting: '#3b82f6',
+  offline: '#f97316',
+  training: '#818cf8',
+  sick_leave: '#ef4444',
+  day_off: '#9ca3af',
+  other: '#fb923c',
 }
 
 /** 块类型 → 显示文字映射 */
-export const BLOCK_LABELS: Record<BlockType, string> = {
+export const BLOCK_LABELS: Record<string, string> = {
   work: 'Work',
   break: 'Break',
+  lunch: 'Lunch',
   meeting: 'Meeting',
   offline: 'Offline',
   training: 'Training',
+  sick_leave: 'Sick Leave',
+  day_off: 'Day Off',
   other: 'Other',
 }

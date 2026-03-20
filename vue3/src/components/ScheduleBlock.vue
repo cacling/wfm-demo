@@ -39,7 +39,7 @@ const start = computed(() => dayjs(props.block.start))
 const end = computed(() => dayjs(props.block.end))
 const x = computed(() => timeToX(start.value))                              // 块的左边位置（像素）
 const width = computed(() => end.value.diff(start.value, 'minute') * PX_PER_MINUTE) // 块的宽度（像素）
-const color = computed(() => BLOCK_COLORS[props.block.type])                // 背景颜色
+const color = computed(() => props.block.color || BLOCK_COLORS[props.block.type] || '#4ade80')  // 后端色优先
 const isSelected = computed(() => store.selectedBlockId === props.block.id) // 是否被选中
 
 /** 阻止浏览器默认右键菜单，改用自定义菜单 */
