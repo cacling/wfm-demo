@@ -6,9 +6,10 @@
  */
 import { Hono } from 'hono'
 import { db } from '../db'
-import { schedulePlans, scheduleEntries, scheduleBlocks, changeOperations, changeItems, agents, activities, groups, contracts, shifts } from '../db/schema'
+import { schedulePlans, scheduleEntries, scheduleBlocks, changeOperations, changeItems, agents, activities, groups, contracts, shifts, planVersions, publishLogs, validationResults } from '../db/schema'
 import { eq, and } from 'drizzle-orm'
 import { generateSchedule } from '../services/scheduler'
+import { executeRuleChain } from '../services/rule-engine'
 
 const router = new Hono()
 
@@ -277,6 +278,156 @@ router.post('/:id/changes/:opId/confirm', async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
   }
+})
+
+// ========== 发布/版本/回滚 API（Phase 5） ==========
+
+/** 发布前全量校验（stage=publish） */
+router.post('/:id/publish/validate', async (c) => {
+  const planId = Number(c.req.param('id'))
+  const results = executeRuleChain('publish', { planId })
+
+  // 也执行 edit_commit 阶段的规则对所有 entries
+  const entries = db.select().from(scheduleEntries).where(eq(scheduleEntries.planId, planId)).all()
+  const allResults = [...results]
+  for (const entry of entries) {
+    const commitResults = executeRuleChain('edit_commit', {
+      planId, assignmentId: entry.id, date: entry.date,
+    })
+    allResults.push(...commitResults)
+  }
+
+  const errors = allResults.filter(r => r.level === 'error')
+  const warnings = allResults.filter(r => r.level === 'warning')
+  const infos = allResults.filter(r => r.level === 'info')
+
+  return c.json({ valid: errors.length === 0, errors, warnings, infos })
+})
+
+/** 发布排班方案 */
+router.post('/:id/publish', async (c) => {
+  const planId = Number(c.req.param('id'))
+  const body = await c.req.json().catch(() => ({}))
+
+  const plan = db.select().from(schedulePlans).where(eq(schedulePlans.id, planId)).get()
+  if (!plan) return c.json({ error: 'Plan not found' }, 404)
+  if (plan.status === 'published') return c.json({ error: 'Already published' }, 400)
+
+  // 创建版本快照
+  const entries = db.select().from(scheduleEntries).where(eq(scheduleEntries.planId, planId)).all()
+  const snapshot: any = { entries: [] }
+  for (const entry of entries) {
+    const blocks = db.select().from(scheduleBlocks).where(eq(scheduleBlocks.entryId, entry.id)).all()
+    snapshot.entries.push({ ...entry, blocks })
+  }
+
+  db.insert(planVersions).values({
+    planId,
+    versionNo: plan.versionNo,
+    snapshotJson: JSON.stringify(snapshot),
+  }).run()
+
+  // 更新方案状态
+  const now = new Date().toISOString()
+  db.update(schedulePlans).set({
+    status: 'published',
+    publishedAt: now,
+    publishedBy: body.operatorId || 'system',
+  }).where(eq(schedulePlans.id, planId)).run()
+
+  // 锁定所有 entries
+  for (const entry of entries) {
+    db.update(scheduleEntries).set({ status: 'published' }).where(eq(scheduleEntries.id, entry.id)).run()
+  }
+
+  // 记录发布日志
+  db.insert(publishLogs).values({
+    planId,
+    versionNo: plan.versionNo,
+    operatorId: body.operatorId || 'system',
+    operatorName: body.operatorName || 'System',
+    action: 'publish',
+    note: body.note || null,
+  }).run()
+
+  return c.json({ ok: true, versionNo: plan.versionNo, publishedAt: now })
+})
+
+/** 回滚到指定版本 */
+router.post('/:id/rollback', async (c) => {
+  const planId = Number(c.req.param('id'))
+  const body = await c.req.json()
+  const targetVersion = body.versionNo
+
+  const version = db.select().from(planVersions)
+    .where(and(eq(planVersions.planId, planId), eq(planVersions.versionNo, targetVersion)))
+    .get()
+  if (!version) return c.json({ error: `Version ${targetVersion} not found` }, 404)
+
+  const snapshot = JSON.parse(version.snapshotJson)
+
+  // 清除当前数据
+  const currentEntries = db.select({ id: scheduleEntries.id }).from(scheduleEntries)
+    .where(eq(scheduleEntries.planId, planId)).all()
+  for (const e of currentEntries) {
+    db.delete(scheduleBlocks).where(eq(scheduleBlocks.entryId, e.id)).run()
+  }
+  db.delete(scheduleEntries).where(eq(scheduleEntries.planId, planId)).run()
+
+  // 从快照恢复
+  for (const entry of snapshot.entries) {
+    const [newEntry] = db.insert(scheduleEntries).values({
+      planId, agentId: entry.agentId, date: entry.date,
+      shiftId: entry.shiftId, status: 'editable',
+    }).returning().all()
+
+    for (const block of entry.blocks) {
+      db.insert(scheduleBlocks).values({
+        entryId: newEntry.id, activityId: block.activityId,
+        startTime: block.startTime, endTime: block.endTime,
+        source: block.source || 'algorithm', locked: block.locked || false,
+      }).run()
+    }
+  }
+
+  // 更新方案状态
+  const plan = db.select().from(schedulePlans).where(eq(schedulePlans.id, planId)).get()
+  db.update(schedulePlans).set({
+    status: 'editing',
+    versionNo: (plan?.versionNo || 0) + 1,
+    publishedAt: null,
+    publishedBy: null,
+  }).where(eq(schedulePlans.id, planId)).run()
+
+  // 记录回滚日志
+  db.insert(publishLogs).values({
+    planId,
+    versionNo: targetVersion,
+    operatorId: body.operatorId || 'system',
+    operatorName: body.operatorName || 'System',
+    action: 'rollback',
+    note: `Rollback to version ${targetVersion}`,
+  }).run()
+
+  return c.json({ ok: true, restoredVersion: targetVersion })
+})
+
+/** 查看版本历史 */
+router.get('/:id/history', (c) => {
+  const planId = Number(c.req.param('id'))
+  const versions = db.select({
+    id: planVersions.id,
+    versionNo: planVersions.versionNo,
+    createdAt: planVersions.createdAt,
+  }).from(planVersions)
+    .where(eq(planVersions.planId, planId))
+    .all()
+
+  const logs = db.select().from(publishLogs)
+    .where(eq(publishLogs.planId, planId))
+    .all()
+
+  return c.json({ versions, logs })
 })
 
 export default router

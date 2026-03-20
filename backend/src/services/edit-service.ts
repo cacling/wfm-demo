@@ -16,6 +16,7 @@ import * as s from '../db/schema'
 import { eq, and } from 'drizzle-orm'
 import dayjs from 'dayjs'
 import { snapTime } from './snap'
+import { executeRuleChain, type RuleContext, type RuleResult } from './rule-engine'
 
 // ========== 类型定义 ==========
 
@@ -84,8 +85,21 @@ export function executeEditIntent(cmd: EditIntentCommand): EditResult {
   // 执行变更（在内存中计算，不立即落库）
   const mutations = computeMutations(cmd, entry)
 
-  // 局部校验（edit_preview）
-  const localValidation = runLocalValidation(cmd, entry, mutations)
+  // 局部校验（edit_preview）— 使用规则引擎
+  const ruleCtx: RuleContext = {
+    planId: cmd.planId,
+    date: entry.date,
+    assignmentId: cmd.assignmentId,
+    blockId: cmd.blockId,
+    activityId: cmd.activityId,
+    targetRange: cmd.targetRange ? {
+      startTime: snapTime(cmd.targetRange.startTime),
+      endTime: snapTime(cmd.targetRange.endTime),
+    } : undefined,
+    intentType: cmd.intentType,
+  }
+  const localResults = executeRuleChain('edit_preview', ruleCtx)
+  const localValidation = toValidation(localResults)
 
   // 如果是 preview 模式，返回预览结果
   if (cmd.saveMode === 'preview') {
@@ -99,8 +113,9 @@ export function executeEditIntent(cmd: EditIntentCommand): EditResult {
     }
   }
 
-  // commit 模式：先做全局校验（edit_commit）
-  const globalValidation = runGlobalValidation(cmd, entry, mutations)
+  // commit 模式：先做全局校验（edit_commit）— 使用规则引擎
+  const globalResults = executeRuleChain('edit_commit', ruleCtx)
+  const globalValidation = toValidation(globalResults)
   const allErrors = [...localValidation.errors, ...globalValidation.errors]
   const allWarnings = [...localValidation.warnings, ...globalValidation.warnings]
   const allInfos = [...localValidation.infos, ...globalValidation.infos]
@@ -299,9 +314,18 @@ function computeMutations(cmd: EditIntentCommand, entry: any): MutationPlan {
   return { items }
 }
 
-// ========== 局部校验 ==========
+// ========== RuleResult → Validation 转换 ==========
 
-function runLocalValidation(cmd: EditIntentCommand, entry: any, mutations: MutationPlan): EditResult['validation'] {
+function toValidation(results: RuleResult[]): EditResult['validation'] {
+  const errors = results.filter(r => r.level === 'error').map(r => ({ ...r }))
+  const warnings = results.filter(r => r.level === 'warning').map(r => ({ ...r }))
+  const infos = results.filter(r => r.level === 'info').map(r => ({ ...r }))
+  return { valid: errors.length === 0, errors, warnings, infos }
+}
+
+// ========== 以下为旧代码保留备用 ==========
+
+function _runLocalValidation_legacy(cmd: EditIntentCommand, entry: any, mutations: MutationPlan): EditResult['validation'] {
   const errors: ValidationItem[] = []
   const warnings: ValidationItem[] = []
   const infos: ValidationItem[] = []
