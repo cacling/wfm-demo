@@ -8,6 +8,9 @@
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from '../i18n'
+
+const { t } = useI18n()
 
 interface ValidationItem {
   agentId: number | null
@@ -62,10 +65,10 @@ const allItems = computed(() => [
         </div>
         <div>
           <h2 class="text-sm font-bold text-gray-800">
-            {{ result.valid ? 'Validation Passed' : 'Validation Issues Found' }}
+            {{ result.valid ? t('validation_passed') : t('validation_issues') }}
           </h2>
           <p class="text-xs text-gray-500">
-            {{ result.errors.length }} errors, {{ result.warnings.length }} warnings, {{ result.infos.length }} infos
+            {{ result.errors.length }} {{ t('errors') }}, {{ result.warnings.length }} {{ t('warnings') }}, {{ result.infos.length }} {{ t('infos') }}
           </p>
         </div>
       </div>
@@ -88,7 +91,7 @@ const allItems = computed(() => [
         </div>
 
         <div v-if="total === 0" class="text-center text-gray-400 py-6 text-sm">
-          All checks passed. No issues found.
+          {{ t('all_checks_passed') }}
         </div>
       </div>
 
@@ -98,14 +101,14 @@ const allItems = computed(() => [
           class="px-4 py-1.5 text-sm rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
           @click="emit('close')"
         >
-          Close
+          {{ t('close') }}
         </button>
         <button
           v-if="result.warnings.length > 0 && result.errors.length === 0"
           class="px-4 py-1.5 text-sm rounded-md bg-yellow-500 text-white hover:bg-yellow-600"
           @click="emit('confirm')"
         >
-          Accept Warnings & Save
+          {{ t('accept_warnings') }}
         </button>
       </div>
     </div>

@@ -7,8 +7,10 @@ import dayjs from 'dayjs'
 import { useScheduleStore } from '../stores/schedule'
 import { getTimelineStart, PX_PER_MINUTE, TIMELINE_WIDTH } from '../utils/time'
 import { api } from '../api'
+import { useI18n } from '../i18n'
 
 const store = useScheduleStore()
+const { t } = useI18n()
 const skills = ref<{ id: number; code: string; name: string }[]>([])
 const selectedSkillId = ref<number | null>(null)
 
@@ -60,12 +62,12 @@ const maxCount = computed(() => Math.max(...coverageSlots.value.map(s => s.count
   <div class="flex items-stretch border-t border-gray-200">
     <!-- 技能筛选（左侧对齐 agent list 宽度） -->
     <div class="flex items-center px-2 gap-1 bg-gray-50 border-r border-gray-200" style="width: fit-content; min-width: 0">
-      <span class="text-[9px] text-gray-400 whitespace-nowrap">Coverage:</span>
+      <span class="text-[9px] text-gray-400 whitespace-nowrap">{{ t('coverage') }}</span>
       <select
         v-model="selectedSkillId"
         class="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white"
       >
-        <option :value="null">All</option>
+        <option :value="null">{{ t('all') }}</option>
         <option v-for="sk in skills" :key="sk.id" :value="sk.id">{{ sk.name }}</option>
       </select>
     </div>

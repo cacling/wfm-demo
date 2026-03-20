@@ -6,8 +6,10 @@ import { computed } from 'vue'
 import { useScheduleStore } from '../stores/schedule'
 import { formatDuration, ROW_HEIGHT } from '../utils/time'
 import { storeToRefs } from 'pinia'
+import { useI18n } from '../i18n'
 
 const store = useScheduleStore()
+const { t } = useI18n()
 const { agents } = storeToRefs(store)
 
 const totals = computed(() =>
@@ -23,7 +25,7 @@ const totals = computed(() =>
 <template>
   <div class="overflow-hidden flex-shrink-0 border-l border-gray-200 bg-white" :style="{ width: '110px' }">
     <div class="h-10 border-b border-gray-200 flex items-center justify-center">
-      <span class="text-[10px] font-semibold text-gray-500 tracking-wide">Contract time</span>
+      <span class="text-[10px] font-semibold text-gray-500 tracking-wide">{{ t('contract_time') }}</span>
     </div>
     <div>
       <div

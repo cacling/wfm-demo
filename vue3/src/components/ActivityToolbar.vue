@@ -7,6 +7,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api } from '../api'
+import { useI18n } from '../i18n'
+
+const { t } = useI18n()
 
 interface ActivityDef {
   id: number
@@ -41,7 +44,7 @@ function onDragStart(e: DragEvent, activity: ActivityDef) {
 
 <template>
   <div class="flex items-center gap-1 px-2">
-    <span class="text-[10px] text-gray-400 mr-1">Drag:</span>
+    <span class="text-[10px] text-gray-400 mr-1">{{ t('drag') }}</span>
     <div
       v-for="act in activities"
       :key="act.id"

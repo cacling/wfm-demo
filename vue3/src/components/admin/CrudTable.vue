@@ -9,7 +9,9 @@
 -->
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useI18n } from '../../i18n'
 
+const { t } = useI18n()
 const BASE = 'http://localhost:3210/api'
 
 const props = defineProps<{
@@ -93,11 +95,11 @@ onMounted(fetchData)
       <button
         class="px-3 py-1 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600"
         @click="openCreate"
-      >+ Add</button>
+      >{{ t('add') }}</button>
       <button
         class="px-3 py-1 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
         @click="fetchData"
-      >Refresh</button>
+      >{{ t('refresh') }}</button>
     </div>
 
     <!-- Table -->
@@ -112,7 +114,7 @@ onMounted(fetchData)
               class="text-left px-3 py-2 text-xs font-semibold text-gray-500"
               :style="col.width ? { width: col.width } : {}"
             >{{ col.label }}</th>
-            <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-24">Actions</th>
+            <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-24">{{ t('actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -133,12 +135,12 @@ onMounted(fetchData)
               <span v-else>{{ displayValue(row, col) }}</span>
             </td>
             <td class="px-3 py-2 text-right">
-              <button class="text-blue-500 hover:underline text-xs mr-2" @click="openEdit(row)">Edit</button>
-              <button class="text-red-500 hover:underline text-xs" @click="remove(row.id)">Del</button>
+              <button class="text-blue-500 hover:underline text-xs mr-2" @click="openEdit(row)">{{ t('edit') }}</button>
+              <button class="text-red-500 hover:underline text-xs" @click="remove(row.id)">{{ t('delete') }}</button>
             </td>
           </tr>
           <tr v-if="rows.length === 0">
-            <td :colspan="columns.length + 2" class="px-3 py-8 text-center text-gray-400">No data</td>
+            <td :colspan="columns.length + 2" class="px-3 py-8 text-center text-gray-400">{{ t('no_data') }}</td>
           </tr>
         </tbody>
       </table>
@@ -148,7 +150,7 @@ onMounted(fetchData)
     <div v-if="showForm" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-lg shadow-xl w-[440px] max-h-[80vh] overflow-auto">
         <div class="px-5 py-4 border-b border-gray-200">
-          <h3 class="text-sm font-bold text-gray-800">{{ editingId ? 'Edit' : 'Create' }} {{ title }}</h3>
+          <h3 class="text-sm font-bold text-gray-800">{{ editingId ? t('edit') : t('create') }} {{ title }}</h3>
         </div>
         <div class="px-5 py-4 space-y-3">
           <div v-for="field in formFields" :key="field.key">
@@ -184,8 +186,8 @@ onMounted(fetchData)
           </div>
         </div>
         <div class="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
-          <button class="px-4 py-1.5 text-sm rounded-md border border-gray-300 text-gray-600" @click="showForm = false">Cancel</button>
-          <button class="px-4 py-1.5 text-sm rounded-md bg-blue-500 text-white hover:bg-blue-600" @click="save">Save</button>
+          <button class="px-4 py-1.5 text-sm rounded-md border border-gray-300 text-gray-600" @click="showForm = false">{{ t('cancel') }}</button>
+          <button class="px-4 py-1.5 text-sm rounded-md bg-blue-500 text-white hover:bg-blue-600" @click="save">{{ t('save') }}</button>
         </div>
       </div>
     </div>

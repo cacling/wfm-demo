@@ -15,6 +15,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { BLOCK_COLORS, BLOCK_LABELS, type ActivityType } from '../types'
+import { useI18n } from '../i18n'
+
+const { t } = useI18n()
 
 /** 可添加的活动类型列表 */
 const ACTIVITY_TYPES: ActivityType[] = ['break', 'meeting', 'training', 'offline', 'other']
@@ -67,7 +70,7 @@ onUnmounted(() => {
     <!-- 新增活动模式：列出所有可选活动类型 -->
     <template v-if="mode === 'add'">
       <div class="px-3 py-1.5 text-[10px] text-gray-400 font-semibold tracking-wide uppercase">
-        Add Activity
+        {{ t('add_activity') }}
       </div>
       <button
         v-for="type in ACTIVITY_TYPES"
@@ -88,7 +91,7 @@ onUnmounted(() => {
         @click="emit('delete'); emit('close')"
       >
         <span>✕</span>
-        <span>Delete {{ blockLabel }}</span>
+        <span>{{ t('delete') }} {{ blockLabel }}</span>
       </button>
     </template>
   </div>

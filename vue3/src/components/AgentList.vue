@@ -5,15 +5,17 @@
 import { useScheduleStore } from '../stores/schedule'
 import { ROW_HEIGHT } from '../utils/time'
 import { storeToRefs } from 'pinia'
+import { useI18n } from '../i18n'
 
 const { agents } = storeToRefs(useScheduleStore())
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="overflow-hidden flex-shrink-0 border-r border-gray-200 bg-white" :style="{ width: '240px' }">
     <div class="h-10 border-b border-gray-200 flex items-center px-3 gap-2">
       <input type="checkbox" class="accent-blue-500" />
-      <span class="text-xs font-semibold text-gray-600 tracking-wide">Name</span>
+      <span class="text-xs font-semibold text-gray-600 tracking-wide">{{ t('name') }}</span>
       <span class="text-xs text-gray-400 ml-auto cursor-pointer">↕</span>
     </div>
     <div>

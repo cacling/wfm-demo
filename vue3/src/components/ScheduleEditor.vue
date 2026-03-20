@@ -13,8 +13,10 @@ import { api } from '../api'
 import ValidationDialog from './ValidationDialog.vue'
 import ActivityToolbar from './ActivityToolbar.vue'
 import DateNav from './DateNav.vue'
+import { useI18n } from '../i18n'
 
 const store = useScheduleStore()
+const { t } = useI18n()
 const validationResult = ref<any>(null)
 const publishStatus = ref<string>('')
 
@@ -106,17 +108,17 @@ onMounted(async () => {
     <div class="bg-white border-b border-gray-200 flex-shrink-0">
       <!-- 第一行 -->
       <div class="h-10 flex items-center px-4 gap-2">
-        <h1 class="text-sm font-bold text-gray-800">WFM Schedule Editor</h1>
+        <h1 class="text-sm font-bold text-gray-800">{{ t('schedule_editor') }}</h1>
         <DateNav />
         <span v-if="store.versionNo" class="text-[10px] text-gray-400">v{{ store.versionNo }}</span>
         <div class="flex-1" />
         <!-- 操作按钮组 -->
-        <button class="px-2.5 py-1 text-xs rounded bg-blue-500 text-white hover:bg-blue-600" @click="runValidation">Validate</button>
-        <button class="px-2.5 py-1 text-xs rounded bg-indigo-500 text-white hover:bg-indigo-600" @click="runPublishValidate">Pre-publish Check</button>
-        <button class="px-2.5 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700" @click="doPublish">Publish</button>
-        <button class="px-2.5 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" @click="doRollback">Rollback</button>
+        <button class="px-2.5 py-1 text-xs rounded bg-blue-500 text-white hover:bg-blue-600" @click="runValidation">{{ t('validate') }}</button>
+        <button class="px-2.5 py-1 text-xs rounded bg-indigo-500 text-white hover:bg-indigo-600" @click="runPublishValidate">{{ t('pre_publish_check') }}</button>
+        <button class="px-2.5 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700" @click="doPublish">{{ t('publish') }}</button>
+        <button class="px-2.5 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" @click="doRollback">{{ t('rollback') }}</button>
         <span v-if="publishStatus" class="text-xs text-green-600 font-medium">{{ publishStatus }}</span>
-        <div v-if="store.loading" class="text-xs text-blue-500">Loading...</div>
+        <div v-if="store.loading" class="text-xs text-blue-500">{{ t('loading') }}</div>
         <!-- 图例 -->
         <div class="flex items-center gap-2 ml-2">
           <div v-for="item in legendItems" :key="item.type" class="flex items-center gap-1">
