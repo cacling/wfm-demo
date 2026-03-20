@@ -6,7 +6,8 @@
  */
 import { Hono } from 'hono'
 import { db } from '../db'
-import { schedulePlans, scheduleEntries, scheduleBlocks, changeOperations, changeItems, agents, activities, groups, contracts, shifts, planVersions, publishLogs, validationResults } from '../db/schema'
+import { schedulePlans, scheduleEntries, scheduleBlocks, changeOperations, changeItems, agents, activities, groups, contracts, shifts, planVersions, publishLogs, validationResults, agentSkills, staffingRequirements as staffingReqTable } from '../db/schema'
+import * as s from '../db/schema'
 import { eq, and } from 'drizzle-orm'
 import { generateSchedule } from '../services/scheduler'
 import { executeRuleChain } from '../services/rule-engine'
@@ -278,6 +279,118 @@ router.post('/:id/changes/:opId/confirm', async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
   }
+})
+
+// ========== 批量编辑 API（Phase 6） ==========
+
+/** 批量提交多个编辑意图 */
+router.post('/:id/changes/batch', async (c) => {
+  const planId = Number(c.req.param('id'))
+  const body = await c.req.json()
+  const intents: EditIntentCommand[] = body.intents || []
+  const confirmWarnings = body.confirmWarnings || false
+
+  const results: any[] = []
+  let allOk = true
+
+  for (const intent of intents) {
+    const cmd: EditIntentCommand = {
+      ...intent,
+      planId,
+      saveMode: 'commit',
+      confirmWarnings,
+    } as EditIntentCommand
+
+    try {
+      const result = executeEditIntent(cmd)
+      results.push(result)
+      if (result.status !== 'committed') allOk = false
+    } catch (e: any) {
+      results.push({ status: 'rejected', error: e.message })
+      allOk = false
+    }
+  }
+
+  return c.json({
+    ok: allOk,
+    total: intents.length,
+    committed: results.filter(r => r.status === 'committed').length,
+    rejected: results.filter(r => r.status === 'rejected').length,
+    results,
+  })
+})
+
+// ========== 覆盖率查询 API（Phase 6） ==========
+
+/** 按时段 + 技能查询覆盖率 */
+router.get('/:id/coverage', (c) => {
+  const planId = Number(c.req.param('id'))
+  const date = c.req.query('date')
+  const skillIdParam = c.req.query('skillId')
+
+  const plan = db.select().from(schedulePlans).where(eq(schedulePlans.id, planId)).get()
+  if (!plan) return c.json({ error: 'Plan not found' }, 404)
+  const targetDate = date || plan.startDate
+
+  // 获取当天所有 entries
+  const entries = db.select({
+    entryId: scheduleEntries.id,
+    agentId: scheduleEntries.agentId,
+  })
+    .from(scheduleEntries)
+    .where(and(eq(scheduleEntries.planId, planId), eq(scheduleEntries.date, targetDate)))
+    .all()
+
+  // 如果指定了 skillId，过滤有该技能的坐席
+  let validAgentIds: Set<number> | null = null
+  if (skillIdParam) {
+    const skillId = Number(skillIdParam)
+    const bindings = db.select().from(s.agentSkills).where(eq(s.agentSkills.skillId, skillId)).all()
+    validAgentIds = new Set(bindings.map(b => b.agentId))
+  }
+
+  // Work 活动 ID
+  const workAct = db.select().from(activities).where(eq(activities.code, 'WORK')).get()
+  if (!workAct) return c.json({ error: 'Work activity not found' }, 500)
+
+  // 按 30 分钟切片统计
+  const dayStart = new Date(`${targetDate}T00:00:00Z`)
+  const slots: { startTime: string; endTime: string; count: number; total: number }[] = []
+
+  for (let offset = 0; offset < 24 * 60; offset += 30) {
+    const slotStart = new Date(dayStart.getTime() + offset * 60000)
+    const slotEnd = new Date(slotStart.getTime() + 30 * 60000)
+    let workCount = 0
+    let totalCount = 0
+
+    for (const entry of entries) {
+      if (validAgentIds && !validAgentIds.has(entry.agentId)) continue
+      totalCount++
+
+      const blocks = db.select().from(scheduleBlocks)
+        .where(eq(scheduleBlocks.entryId, entry.entryId)).all()
+
+      const isWorking = blocks.some(b => {
+        if (b.activityId !== workAct.id) return false
+        return new Date(b.startTime) < slotEnd && new Date(b.endTime) > slotStart
+      })
+      if (isWorking) workCount++
+    }
+
+    slots.push({
+      startTime: slotStart.toISOString(),
+      endTime: slotEnd.toISOString(),
+      count: workCount,
+      total: totalCount,
+    })
+  }
+
+  // 获取该天的 staffing requirements
+  const reqs = db.select().from(s.staffingRequirements)
+    .where(and(eq(s.staffingRequirements.planId, planId), eq(s.staffingRequirements.date, targetDate)))
+    .all()
+
+  return c.json({ date: targetDate, skillId: skillIdParam ? Number(skillIdParam) : null, slots, requirements: reqs })
 })
 
 // ========== 发布/版本/回滚 API（Phase 5） ==========

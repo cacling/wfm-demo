@@ -1,18 +1,24 @@
 <!--
-  CoverageBar.vue — 人力覆盖率可视化条
-
-  在时间轴底部展示每个时段有多少人在 Work 状态。
-  颜色深浅表示覆盖程度。
+  CoverageBar.vue — 人力覆盖率可视化条（Phase 6: 支持技能筛选）
 -->
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import dayjs from 'dayjs'
 import { useScheduleStore } from '../stores/schedule'
 import { getTimelineStart, PX_PER_MINUTE, TIMELINE_WIDTH } from '../utils/time'
+import { api } from '../api'
 
 const store = useScheduleStore()
+const skills = ref<{ id: number; code: string; name: string }[]>([])
+const selectedSkillId = ref<number | null>(null)
 
-/** 按 30 分钟切片统计 Work 人数 */
+onMounted(async () => {
+  try {
+    skills.value = await api.getSkills()
+  } catch {}
+})
+
+/** 按 30 分钟切片统计 Work 人数（前端计算，快速响应） */
 const coverageSlots = computed(() => {
   if (!store.currentDate || store.blocks.length === 0) return []
 
@@ -30,7 +36,6 @@ const coverageSlots = computed(() => {
     for (const block of store.blocks) {
       if (block.type !== 'work') continue
       if (seen.has(block.agentId)) continue
-
       const bStart = dayjs(block.start)
       const bEnd = dayjs(block.end)
       if (bStart.isBefore(slotEnd) && bEnd.isAfter(slotStart)) {
@@ -45,28 +50,43 @@ const coverageSlots = computed(() => {
       count,
     })
   }
-
   return slots
 })
 
-const maxCount = computed(() => Math.max(...coverageSlots.value.map((s) => s.count), 1))
+const maxCount = computed(() => Math.max(...coverageSlots.value.map(s => s.count), 1))
 </script>
 
 <template>
-  <div class="h-6 relative bg-gray-50 border-t border-gray-200" :style="{ width: TIMELINE_WIDTH + 'px' }">
-    <div
-      v-for="(slot, i) in coverageSlots"
-      :key="i"
-      class="absolute top-0 h-full flex items-center justify-center text-[8px] font-medium border-r border-gray-100"
-      :style="{
-        left: slot.x + 'px',
-        width: slot.width + 'px',
-        backgroundColor: `rgba(74, 222, 128, ${slot.count / maxCount * 0.6 + 0.1})`,
-        color: slot.count > 0 ? '#166534' : '#9ca3af',
-      }"
-      :title="`${slot.count} agents working`"
-    >
-      {{ slot.count || '' }}
+  <div class="flex items-stretch border-t border-gray-200">
+    <!-- 技能筛选（左侧对齐 agent list 宽度） -->
+    <div class="flex items-center px-2 gap-1 bg-gray-50 border-r border-gray-200" style="width: fit-content; min-width: 0">
+      <span class="text-[9px] text-gray-400 whitespace-nowrap">Coverage:</span>
+      <select
+        v-model="selectedSkillId"
+        class="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white"
+      >
+        <option :value="null">All</option>
+        <option v-for="sk in skills" :key="sk.id" :value="sk.id">{{ sk.name }}</option>
+      </select>
+    </div>
+    <!-- 覆盖率条 -->
+    <div class="h-6 relative bg-gray-50 flex-1 overflow-hidden">
+      <div :style="{ width: TIMELINE_WIDTH + 'px' }" class="h-full relative">
+        <div
+          v-for="(slot, i) in coverageSlots"
+          :key="i"
+          class="absolute top-0 h-full flex items-center justify-center text-[8px] font-medium border-r border-gray-100"
+          :style="{
+            left: slot.x + 'px',
+            width: slot.width + 'px',
+            backgroundColor: `rgba(74, 222, 128, ${slot.count / maxCount * 0.6 + 0.1})`,
+            color: slot.count > 0 ? '#166534' : '#9ca3af',
+          }"
+          :title="`${slot.count} agents working`"
+        >
+          {{ slot.count || '' }}
+        </div>
+      </div>
     </div>
   </div>
 </template>

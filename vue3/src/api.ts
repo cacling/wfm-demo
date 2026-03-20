@@ -56,6 +56,26 @@ export const api = {
   validatePlan: (planId: number, date: string) =>
     request<any>(`/plans/${planId}/validate`, { method: 'POST', body: JSON.stringify({ date }) }),
 
+  // 批量编辑
+  batchEdit: (planId: number, intents: EditIntentCommand[], confirmWarnings = false) =>
+    request<any>(`/plans/${planId}/changes/batch`, { method: 'POST', body: JSON.stringify({ intents, confirmWarnings }) }),
+
+  // 覆盖率
+  getCoverage: (planId: number, date: string, skillId?: number) =>
+    request<any>(`/plans/${planId}/coverage?date=${date}${skillId ? `&skillId=${skillId}` : ''}`),
+
+  // 发布/版本
+  publishValidate: (planId: number) =>
+    request<any>(`/plans/${planId}/publish/validate`, { method: 'POST' }),
+  publish: (planId: number, operatorId = 'admin') =>
+    request<any>(`/plans/${planId}/publish`, { method: 'POST', body: JSON.stringify({ operatorId }) }),
+  rollback: (planId: number, versionNo: number) =>
+    request<any>(`/plans/${planId}/rollback`, { method: 'POST', body: JSON.stringify({ versionNo }) }),
+  getHistory: (planId: number) => request<any>(`/plans/${planId}/history`),
+
   // 编辑历史
   getChanges: (planId: number) => request<any[]>(`/plans/${planId}/changes`),
+
+  // 技能列表
+  getSkills: () => request<any[]>('/skills'),
 }
