@@ -182,6 +182,7 @@ function seed() {
     { code: 'MEAL_REQUIRED',         name: 'Meal Required',             category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'warning' },
     { code: 'MIN_BREAK',             name: 'Minimum Break',             category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'warning' },
     { code: 'GROUP_SYNC',            name: 'Group Sync',                category: 'group',    stage: 'edit_commit',  scopeType: 'group',  severityDefault: 'warning' },
+    { code: 'STAFFING_COVERAGE',     name: 'Staffing Coverage',         category: 'staffing', stage: 'edit_commit',  scopeType: 'plan',   severityDefault: 'error', description: 'Checks min agents per time slot against staffing requirements' },
     // publish 阶段
     { code: 'WEEK_HOURS',            name: 'Weekly Hours Check',        category: 'contract', stage: 'publish',      scopeType: 'contract', severityDefault: 'error' },
   ]).returning().all()
@@ -217,6 +218,21 @@ function seed() {
     })
   }
   console.log(`  Rule chains: ${chainCount}`)
+
+  // ========== 14. 覆盖需求示例 ==========
+  // 注意：这些需求会在排班方案生成后才有意义
+  // 暂时用 planId=0 作为模板，方案生成后可复制到实际方案
+  // 也可以通过前端"覆盖需求"管理页面手动创建
+
+  // 示例说明：
+  // - 早高峰 09:00-11:00 至少 8 人接电话（对应本地时间，存为 UTC 01:00-03:00）
+  // - 午间 12:00-14:00 至少 5 人值班
+  // - VIP 技能组全天 08:00-18:00 至少 2 人
+  // - 在线聊天渠道 09:00-17:00 至少 3 人
+
+  // 这里先不插入（因为还没有 planId），在"覆盖需求"管理页面可以创建
+  // 当用户创建排班方案并生成后，可以通过管理页面或 API 添加覆盖需求
+  console.log('  Staffing requirements: (create via admin UI after plan generation)')
 
   console.log('Seed complete! (28 tables)')
 }

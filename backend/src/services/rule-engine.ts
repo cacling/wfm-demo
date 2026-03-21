@@ -293,6 +293,62 @@ registerHandler('GROUP_SYNC', (ctx) => {
   return results
 })
 
+registerHandler('STAFFING_COVERAGE', (ctx) => {
+  if (!ctx.planId || !ctx.date) return []
+
+  const reqs = db.select().from(s.staffingRequirements)
+    .where(and(eq(s.staffingRequirements.planId, ctx.planId), eq(s.staffingRequirements.date, ctx.date!)))
+    .all()
+  if (reqs.length === 0) return []
+
+  const entries = db.select().from(s.scheduleEntries)
+    .where(and(eq(s.scheduleEntries.planId, ctx.planId), eq(s.scheduleEntries.date, ctx.date!)))
+    .all()
+
+  const workAct = db.select().from(s.activities).where(eq(s.activities.code, 'WORK')).get()
+  if (!workAct) return []
+
+  const results: RuleResult[] = []
+
+  for (const req of reqs) {
+    const reqStart = dayjs(req.startTime)
+    const reqEnd = dayjs(req.endTime)
+
+    // 如果有 skillId，只统计有该技能的坐席
+    let validAgents: Set<number> | null = null
+    if (req.skillId) {
+      const bindings = db.select().from(s.agentSkills).where(eq(s.agentSkills.skillId, req.skillId)).all()
+      validAgents = new Set(bindings.map(b => b.agentId))
+    }
+
+    let count = 0
+    for (const entry of entries) {
+      if (validAgents && !validAgents.has(entry.agentId)) continue
+      const blocks = db.select().from(s.scheduleBlocks)
+        .where(eq(s.scheduleBlocks.entryId, entry.id)).all()
+      const isWorking = blocks.some(b =>
+        b.activityId === workAct.id &&
+        dayjs(b.startTime).isBefore(reqEnd) &&
+        dayjs(b.endTime).isAfter(reqStart),
+      )
+      if (isWorking) count++
+    }
+
+    if (count < req.minAgents) {
+      const skillName = req.skillId
+        ? db.select().from(s.skills).where(eq(s.skills.id, req.skillId)).get()?.name || `Skill#${req.skillId}`
+        : 'All'
+      results.push({
+        level: 'error',
+        ruleCode: 'STAFFING_COVERAGE',
+        message: `${reqStart.format('HH:mm')}-${reqEnd.format('HH:mm')} [${skillName}]: ${count} agents, need ${req.minAgents}`,
+        confirmable: false,
+      })
+    }
+  }
+  return results
+})
+
 // --- generate 阶段 ---
 
 registerHandler('LEAVE_FILTER', () => [])

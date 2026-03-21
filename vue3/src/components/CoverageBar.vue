@@ -1,8 +1,13 @@
 <!--
-  CoverageBar.vue — 人力覆盖率可视化条（Phase 6: 支持技能筛选）
+  CoverageBar.vue — 人力覆盖率可视化条
+
+  功能：
+  - 每 30 分钟显示在岗人数
+  - 低于覆盖需求的时段显示红色警告
+  - 支持按技能筛选
 -->
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import { useScheduleStore } from '../stores/schedule'
 import { getTimelineStart, PX_PER_MINUTE, TIMELINE_WIDTH } from '../utils/time'
@@ -13,19 +18,38 @@ const store = useScheduleStore()
 const { t } = useI18n()
 const skills = ref<{ id: number; code: string; name: string }[]>([])
 const selectedSkillId = ref<number | null>(null)
+const requirements = ref<any[]>([])
 
 onMounted(async () => {
-  try {
-    skills.value = await api.getSkills()
-  } catch {}
+  try { skills.value = await api.getSkills() } catch {}
 })
 
-/** 按 30 分钟切片统计 Work 人数（前端计算，快速响应） */
+// 加载覆盖需求
+watch(() => [store.currentPlanId, store.currentDate], async () => {
+  if (!store.currentPlanId || !store.currentDate) return
+  try {
+    const data = await api.getCoverage(store.currentPlanId, store.currentDate, selectedSkillId.value || undefined)
+    requirements.value = data.requirements || []
+  } catch {}
+}, { immediate: true })
+
+/** 获取某个时间点的最低需求人数 */
+function getMinRequired(slotStart: dayjs.Dayjs, slotEnd: dayjs.Dayjs): number | null {
+  for (const req of requirements.value) {
+    const rStart = dayjs(req.startTime)
+    const rEnd = dayjs(req.endTime)
+    if (slotStart.isBefore(rEnd) && slotEnd.isAfter(rStart)) {
+      return req.minAgents
+    }
+  }
+  return null
+}
+
 const coverageSlots = computed(() => {
   if (!store.currentDate || store.blocks.length === 0) return []
 
   const start = getTimelineStart()
-  const slots: { x: number; width: number; count: number }[] = []
+  const slots: { x: number; width: number; count: number; min: number | null; belowMin: boolean }[] = []
   const slotMinutes = 30
 
   for (let offset = 0; offset < 28 * 60; offset += slotMinutes) {
@@ -46,10 +70,13 @@ const coverageSlots = computed(() => {
       }
     }
 
+    const min = getMinRequired(slotStart, slotEnd)
     slots.push({
       x: offset * PX_PER_MINUTE,
       width: slotMinutes * PX_PER_MINUTE,
       count,
+      min,
+      belowMin: min !== null && count < min,
     })
   }
   return slots
@@ -60,8 +87,7 @@ const maxCount = computed(() => Math.max(...coverageSlots.value.map(s => s.count
 
 <template>
   <div class="flex items-stretch border-t border-gray-200">
-    <!-- 技能筛选（左侧对齐 agent list 宽度） -->
-    <div class="flex items-center px-2 gap-1 bg-gray-50 border-r border-gray-200" style="width: fit-content; min-width: 0">
+    <div class="flex items-center px-2 gap-1 bg-gray-50 border-r border-gray-200" style="min-width: 0">
       <span class="text-[9px] text-gray-400 whitespace-nowrap">{{ t('coverage') }}</span>
       <select
         v-model="selectedSkillId"
@@ -71,7 +97,6 @@ const maxCount = computed(() => Math.max(...coverageSlots.value.map(s => s.count
         <option v-for="sk in skills" :key="sk.id" :value="sk.id">{{ sk.name }}</option>
       </select>
     </div>
-    <!-- 覆盖率条 -->
     <div class="h-6 relative bg-gray-50 flex-1 overflow-hidden">
       <div :style="{ width: TIMELINE_WIDTH + 'px' }" class="h-full relative">
         <div
@@ -81,12 +106,17 @@ const maxCount = computed(() => Math.max(...coverageSlots.value.map(s => s.count
           :style="{
             left: slot.x + 'px',
             width: slot.width + 'px',
-            backgroundColor: `rgba(74, 222, 128, ${slot.count / maxCount * 0.6 + 0.1})`,
-            color: slot.count > 0 ? '#166534' : '#9ca3af',
+            backgroundColor: slot.belowMin
+              ? 'rgba(239, 68, 68, 0.3)'
+              : `rgba(74, 222, 128, ${slot.count / maxCount * 0.6 + 0.1})`,
+            color: slot.belowMin ? '#dc2626' : (slot.count > 0 ? '#166534' : '#9ca3af'),
           }"
-          :title="`${slot.count} agents working`"
+          :title="slot.min !== null
+            ? `${slot.count} working / ${slot.min} required${slot.belowMin ? ' ⚠️ UNDERSTAFFED' : ''}`
+            : `${slot.count} agents working`"
         >
-          {{ slot.count || '' }}
+          <span>{{ slot.count || '' }}</span>
+          <span v-if="slot.min !== null" class="text-[7px] opacity-60">/{{ slot.min }}</span>
         </div>
       </div>
     </div>
