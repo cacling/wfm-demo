@@ -119,19 +119,23 @@ registerHandler('SHIFT_BOUNDARY', (ctx) => {
   if (!ctx.assignmentId || !ctx.targetRange) return []
   const entry = db.select().from(s.scheduleEntries).where(eq(s.scheduleEntries.id, ctx.assignmentId)).get()
   if (!entry?.shiftId) return []
-  const shift = db.select().from(s.shifts).where(eq(s.shifts.id, entry.shiftId)).get()
-  if (!shift) return []
 
-  const [sh, sm] = shift.startTime.split(':').map(Number)
-  const [eh, em] = shift.endTime.split(':').map(Number)
-  const dayStart = dayjs(entry.date).startOf('day')
-  const shiftStart = dayStart.add(sh, 'hour').add(sm, 'minute')
-  const shiftEnd = dayStart.add(eh, 'hour').add(em, 'minute')
+  // 用该 entry 下已有块的实际最早/最晚时间做边界（避免时区问题）
+  const blocks = db.select().from(s.scheduleBlocks)
+    .where(eq(s.scheduleBlocks.entryId, ctx.assignmentId)).all()
+  if (blocks.length === 0) return []
+
+  const allStarts = blocks.map(b => dayjs(b.startTime))
+  const allEnds = blocks.map(b => dayjs(b.endTime))
+  const shiftStart = allStarts.reduce((a, b) => a.isBefore(b) ? a : b)
+  const shiftEnd = allEnds.reduce((a, b) => a.isAfter(b) ? a : b)
+
   const start = dayjs(ctx.targetRange.startTime)
   const end = dayjs(ctx.targetRange.endTime)
 
+  const shift = db.select().from(s.shifts).where(eq(s.shifts.id, entry.shiftId)).get()
   if (start.isBefore(shiftStart) || end.isAfter(shiftEnd)) {
-    return [{ level: 'error', ruleCode: 'SHIFT_BOUNDARY', message: `Outside shift ${shift.startTime}-${shift.endTime}`, confirmable: false }]
+    return [{ level: 'error', ruleCode: 'SHIFT_BOUNDARY', message: `Outside shift ${shift?.startTime || '?'}-${shift?.endTime || '?'}`, confirmable: false }]
   }
   return []
 })

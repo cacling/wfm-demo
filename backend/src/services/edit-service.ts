@@ -146,6 +146,7 @@ export function executeEditIntent(cmd: EditIntentCommand): EditResult {
 
   // 通过校验 → 落库
   applyMutations(mutations)
+  resolveOverlaps(entry.id)
   rebuildWorkBlocks(entry.id)
 
   // 记录变更事务
@@ -451,6 +452,101 @@ function applyMutations(mutations: MutationPlan) {
       db.update(s.scheduleBlocks).set(m.after).where(eq(s.scheduleBlocks.id, m.blockId)).run()
     } else if (m.type === 'delete' && m.blockId) {
       db.delete(s.scheduleBlocks).where(eq(s.scheduleBlocks.id, m.blockId)).run()
+    }
+  }
+}
+
+// ========== 重叠处理 ==========
+
+/**
+ * 解决同一 entry 内非 Work 块之间的重叠。
+ * 当新插入的活动块与已有活动块时间重叠时：
+ * - 已有块被完全覆盖 → 删除
+ * - 已有块被部分覆盖 → 收缩或切分
+ *
+ * 规则：新块（id 更大 = 后插入）优先。
+ */
+function resolveOverlaps(entryId: number) {
+  const workAct = db.select().from(s.activities).where(eq(s.activities.code, 'WORK')).get()
+  if (!workAct) return
+
+  // 获取所有非 Work 块，按 id 降序（最新的优先）
+  const blocks = db.select().from(s.scheduleBlocks)
+    .where(eq(s.scheduleBlocks.entryId, entryId))
+    .all()
+    .filter(b => b.activityId !== workAct.id)
+    .sort((a, b) => b.id - a.id) // 最新的排前面
+
+  const toDelete: number[] = []
+  const toUpdate: { id: number; startTime: string; endTime: string }[] = []
+
+  for (let i = 0; i < blocks.length; i++) {
+    const newer = blocks[i]
+    if (toDelete.includes(newer.id)) continue
+
+    const nStart = dayjs(newer.startTime)
+    const nEnd = dayjs(newer.endTime)
+
+    for (let j = i + 1; j < blocks.length; j++) {
+      const older = blocks[j]
+      if (toDelete.includes(older.id)) continue
+
+      const oStart = dayjs(older.startTime)
+      const oEnd = dayjs(older.endTime)
+
+      // 无重叠 → 跳过
+      if (!nStart.isBefore(oEnd) || !nEnd.isAfter(oStart)) continue
+
+      // 旧块被完全覆盖 → 删除
+      if (!nStart.isAfter(oStart) && !nEnd.isBefore(oEnd)) {
+        toDelete.push(older.id)
+        continue
+      }
+
+      // 旧块左侧被切 → 收缩右边
+      if (nStart.isAfter(oStart) && !nEnd.isBefore(oEnd)) {
+        toUpdate.push({ id: older.id, startTime: older.startTime, endTime: nStart.toISOString() })
+        continue
+      }
+
+      // 旧块右侧被切 → 收缩左边
+      if (!nStart.isAfter(oStart) && nEnd.isBefore(oEnd)) {
+        toUpdate.push({ id: older.id, startTime: nEnd.toISOString(), endTime: older.endTime })
+        continue
+      }
+
+      // 旧块中间被切 → 缩短旧块 + 创建新块补后段（复杂场景，简化为删除旧块）
+      if (nStart.isAfter(oStart) && nEnd.isBefore(oEnd)) {
+        // 旧块缩为前段
+        toUpdate.push({ id: older.id, startTime: older.startTime, endTime: nStart.toISOString() })
+        // 后段作为新块插入
+        db.insert(s.scheduleBlocks).values({
+          entryId,
+          activityId: older.activityId,
+          startTime: nEnd.toISOString(),
+          endTime: older.endTime,
+          source: older.source,
+          locked: older.locked,
+        }).run()
+      }
+    }
+  }
+
+  // 执行删除
+  for (const id of toDelete) {
+    db.delete(s.scheduleBlocks).where(eq(s.scheduleBlocks.id, id)).run()
+  }
+
+  // 执行收缩
+  for (const u of toUpdate) {
+    // 如果收缩后时长 < 0，直接删除
+    if (!dayjs(u.endTime).isAfter(dayjs(u.startTime))) {
+      db.delete(s.scheduleBlocks).where(eq(s.scheduleBlocks.id, u.id)).run()
+    } else {
+      db.update(s.scheduleBlocks)
+        .set({ startTime: u.startTime, endTime: u.endTime })
+        .where(eq(s.scheduleBlocks.id, u.id))
+        .run()
     }
   }
 }
