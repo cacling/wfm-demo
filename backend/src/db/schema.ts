@@ -309,12 +309,12 @@ export const changeOperations = sqliteTable('change_operations', {
   createdAt: ts(),
 })
 
-/** 变更明细（本次事务影响的具体条目） */
+/** 变更明细（本次事务影响的具体条目，blockId 不设外键以支持删除场景） */
 export const changeItems = sqliteTable('change_items', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   operationId: integer('operation_id').notNull().references(() => changeOperations.id),
-  assignmentId: integer('assignment_id').references(() => scheduleEntries.id),
-  blockId: integer('block_id').references(() => scheduleBlocks.id),
+  assignmentId: integer('assignment_id'), // 不设外键（entry 可能被 rollback 删除）
+  blockId: integer('block_id'), // 不设外键（block 可能被后续操作删除）
   changeType: text('change_type').notNull(), // add / update / delete
   beforeJson: text('before_json'),
   afterJson: text('after_json'),

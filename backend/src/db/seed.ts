@@ -1,6 +1,8 @@
 /**
- * seed.ts — 完整种子数据（28 张表）
- * 运行：bun src/db/seed.ts
+ * seed.ts — 完整场景种子数据（e2e 测试 + 演示）
+ *
+ * 20 名坐席，3 个班组，4 种班次，3 种合同，6 种技能
+ * 含预排休假、临时休假、例外安排、覆盖需求
  */
 
 import { db } from './index'
@@ -9,7 +11,7 @@ import * as s from './schema'
 function seed() {
   console.log('Seeding database...')
 
-  // 按外键依赖倒序清空
+  // 清空所有表
   const tables = [
     s.publishLogs, s.validationResults, s.changeItems, s.changeOperations,
     s.ruleChains, s.ruleBindings, s.ruleDefinitions,
@@ -20,7 +22,7 @@ function seed() {
   ]
   for (const t of tables) db.delete(t).run()
 
-  // ========== 1. 活动类型 ==========
+  // ========== 1. 活动类型（8 种） ==========
   const actRows = db.insert(s.activities).values([
     { code: 'WORK',       name: 'Work',       color: '#4ade80', priority: 10, isPaid: true,  isCoverable: true,  canCover: false, icon: 'phone' },
     { code: 'BREAK',      name: 'Break',      color: '#facc15', priority: 20, isPaid: true,  isCoverable: false, canCover: true,  icon: 'coffee' },
@@ -45,29 +47,35 @@ function seed() {
     { sourceActivityId: act.SICK_LEAVE.id, targetActivityId: act.MEETING.id,  canCover: true },
     { sourceActivityId: act.SICK_LEAVE.id, targetActivityId: act.TRAINING.id, canCover: true },
     { sourceActivityId: act.SICK_LEAVE.id, targetActivityId: act.OFFLINE.id,  canCover: true },
+    // Training 不能覆盖 Lunch（US4 测试场景）
+    { sourceActivityId: act.TRAINING.id,   targetActivityId: act.LUNCH.id,    canCover: false },
+    // Meeting 不能覆盖 Lunch
+    { sourceActivityId: act.MEETING.id,    targetActivityId: act.LUNCH.id,    canCover: false },
   ]).run()
-  console.log('  Cover rules: 9')
+  console.log('  Cover rules: 11')
 
-  // ========== 3. 技能 ==========
+  // ========== 3. 技能（6 种） ==========
   const skillRows = db.insert(s.skills).values([
-    { code: 'VOICE_CN',   name: 'Voice - Mandarin' },
-    { code: 'VOICE_EN',   name: 'Voice - English' },
-    { code: 'CHAT',       name: 'Online Chat' },
-    { code: 'EMAIL',      name: 'Email Support' },
-    { code: 'VIP',        name: 'VIP Service' },
-    { code: 'COMPLAINT',  name: 'Complaint Handling' },
+    { code: 'VOICE_CN',   name: '中文语音' },
+    { code: 'VOICE_EN',   name: '英文语音' },
+    { code: 'CHAT',       name: '在线聊天' },
+    { code: 'EMAIL',      name: '邮件支持' },
+    { code: 'VIP',        name: 'VIP 服务' },
+    { code: 'COMPLAINT',  name: '投诉处理' },
   ]).returning().all()
-  const skill = Object.fromEntries(skillRows.map(sk => [sk.code, sk]))
+  const sk = Object.fromEntries(skillRows.map(s => [s.code, s]))
   console.log(`  Skills: ${skillRows.length}`)
 
-  // ========== 4. 班制 + 班次 ==========
-  const [pMorning] = db.insert(s.shiftPatterns).values({ name: 'Morning Shift', description: '早班 06:00-14:00' }).returning().all()
-  const [pMidday]  = db.insert(s.shiftPatterns).values({ name: 'Midday Shift',  description: '中班 10:00-18:00' }).returning().all()
-  const [pEvening] = db.insert(s.shiftPatterns).values({ name: 'Evening Shift', description: '晚班 14:00-22:00' }).returning().all()
+  // ========== 4. 班制 + 班次（4 种） ==========
+  const [pMorning] = db.insert(s.shiftPatterns).values({ name: '早班', description: '06:00-14:00' }).returning().all()
+  const [pMidday]  = db.insert(s.shiftPatterns).values({ name: '中班', description: '10:00-18:00' }).returning().all()
+  const [pEvening] = db.insert(s.shiftPatterns).values({ name: '晚班', description: '14:00-22:00' }).returning().all()
+  const [pFlex]    = db.insert(s.shiftPatterns).values({ name: '弹性班', description: '08:00-15:00' }).returning().all()
 
-  const [shMorning] = db.insert(s.shifts).values({ patternId: pMorning.id, name: 'Morning 06-14', startTime: '06:00', endTime: '14:00', durationMinutes: 480 }).returning().all()
-  const [shMidday]  = db.insert(s.shifts).values({ patternId: pMidday.id,  name: 'Midday 10-18',  startTime: '10:00', endTime: '18:00', durationMinutes: 480 }).returning().all()
-  const [shEvening] = db.insert(s.shifts).values({ patternId: pEvening.id, name: 'Evening 14-22', startTime: '14:00', endTime: '22:00', durationMinutes: 480 }).returning().all()
+  const [shMorning] = db.insert(s.shifts).values({ patternId: pMorning.id, name: '早班 06-14', startTime: '06:00', endTime: '14:00', durationMinutes: 480 }).returning().all()
+  const [shMidday]  = db.insert(s.shifts).values({ patternId: pMidday.id,  name: '中班 10-18', startTime: '10:00', endTime: '18:00', durationMinutes: 480 }).returning().all()
+  const [shEvening] = db.insert(s.shifts).values({ patternId: pEvening.id, name: '晚班 14-22', startTime: '14:00', endTime: '22:00', durationMinutes: 480 }).returning().all()
+  const [shFlex]    = db.insert(s.shifts).values({ patternId: pFlex.id,    name: '弹性 08-15', startTime: '08:00', endTime: '15:00', durationMinutes: 420 }).returning().all()
 
   // 班次活动模板（Work→Break→Work→Lunch→Work→Break→Work）
   for (const sh of [shMorning, shMidday, shEvening]) {
@@ -81,160 +89,192 @@ function seed() {
       { shiftId: sh.id, activityId: act.WORK.id,  offsetMinutes: 390, durationMinutes: 90,  sortOrder: 7 },
     ]).run()
   }
-  console.log('  Shifts: 3 (with activity templates)')
+  // 弹性班（无 Lunch，只有 Break）
+  db.insert(s.shiftActivities).values([
+    { shiftId: shFlex.id, activityId: act.WORK.id,  offsetMinutes: 0,   durationMinutes: 120, sortOrder: 1 },
+    { shiftId: shFlex.id, activityId: act.BREAK.id, offsetMinutes: 120, durationMinutes: 15,  sortOrder: 2 },
+    { shiftId: shFlex.id, activityId: act.WORK.id,  offsetMinutes: 135, durationMinutes: 150, sortOrder: 3 },
+    { shiftId: shFlex.id, activityId: act.BREAK.id, offsetMinutes: 285, durationMinutes: 15,  sortOrder: 4 },
+    { shiftId: shFlex.id, activityId: act.WORK.id,  offsetMinutes: 300, durationMinutes: 120, sortOrder: 5 },
+  ]).run()
+  console.log('  Shifts: 4 (Morning/Midday/Evening/Flex)')
 
-  // ========== 5. 班次包 ==========
-  const [fullPkg]    = db.insert(s.shiftPackages).values({ name: 'Full-time Package' }).returning().all()
-  const [morningPkg] = db.insert(s.shiftPackages).values({ name: 'Morning-only Package' }).returning().all()
+  // ========== 5. 班次包（3 种） ==========
+  const [pkgFull]    = db.insert(s.shiftPackages).values({ name: '全班次包' }).returning().all()
+  const [pkgMorning] = db.insert(s.shiftPackages).values({ name: '早班包' }).returning().all()
+  const [pkgFlex]    = db.insert(s.shiftPackages).values({ name: '弹性包' }).returning().all()
 
   db.insert(s.shiftPackageItems).values([
-    { packageId: fullPkg.id,    shiftId: shMorning.id },
-    { packageId: fullPkg.id,    shiftId: shMidday.id },
-    { packageId: fullPkg.id,    shiftId: shEvening.id },
-    { packageId: morningPkg.id, shiftId: shMorning.id },
+    { packageId: pkgFull.id,    shiftId: shMorning.id },
+    { packageId: pkgFull.id,    shiftId: shMidday.id },
+    { packageId: pkgFull.id,    shiftId: shEvening.id },
+    { packageId: pkgMorning.id, shiftId: shMorning.id },
+    { packageId: pkgFlex.id,    shiftId: shFlex.id },
   ]).run()
-  console.log('  Shift packages: 2')
+  console.log('  Shift packages: 3')
 
-  // ========== 6. 合同 ==========
-  const [fullContract] = db.insert(s.contracts).values({
-    name: 'Full-time 8h', minHoursDay: 6, maxHoursDay: 10, minHoursWeek: 35, maxHoursWeek: 45,
+  // ========== 6. 合同（3 种） ==========
+  const [ctFull] = db.insert(s.contracts).values({
+    name: '全职 8h', minHoursDay: 6, maxHoursDay: 10, minHoursWeek: 35, maxHoursWeek: 45,
     minBreakMinutes: 15, lunchRequired: true, lunchMinMinutes: 30,
   }).returning().all()
-  const [partContract] = db.insert(s.contracts).values({
-    name: 'Part-time 6h', minHoursDay: 4, maxHoursDay: 7, minHoursWeek: 20, maxHoursWeek: 35,
+  const [ctPart] = db.insert(s.contracts).values({
+    name: '兼职 6h', minHoursDay: 4, maxHoursDay: 7, minHoursWeek: 20, maxHoursWeek: 35,
     minBreakMinutes: 10, lunchRequired: false, lunchMinMinutes: 0,
+  }).returning().all()
+  const [ctFlex] = db.insert(s.contracts).values({
+    name: '弹性 7h', minHoursDay: 5, maxHoursDay: 8, minHoursWeek: 28, maxHoursWeek: 40,
+    minBreakMinutes: 15, lunchRequired: false, lunchMinMinutes: 0,
   }).returning().all()
 
   db.insert(s.contractPackages).values([
-    { contractId: fullContract.id, packageId: fullPkg.id },
-    { contractId: partContract.id, packageId: morningPkg.id },
+    { contractId: ctFull.id, packageId: pkgFull.id },
+    { contractId: ctPart.id, packageId: pkgMorning.id },
+    { contractId: ctFlex.id, packageId: pkgFlex.id },
   ]).run()
-  console.log('  Contracts: 2')
+  console.log('  Contracts: 3 (全职/兼职/弹性)')
 
   // ========== 7. 假期类型 ==========
-  db.insert(s.leaveTypes).values([
-    { code: 'ANNUAL',   name: 'Annual Leave',   isPaid: true,  maxDaysYear: 15, color: '#60a5fa' },
-    { code: 'SICK',     name: 'Sick Leave',      isPaid: true,  maxDaysYear: 10, color: '#ef4444' },
-    { code: 'PERSONAL', name: 'Personal Leave',  isPaid: false, maxDaysYear: 5,  color: '#a78bfa' },
-  ]).run()
+  const ltRows = db.insert(s.leaveTypes).values([
+    { code: 'ANNUAL',   name: '年假',   isPaid: true,  maxDaysYear: 15, color: '#60a5fa' },
+    { code: 'SICK',     name: '病假',   isPaid: true,  maxDaysYear: 10, color: '#ef4444' },
+    { code: 'PERSONAL', name: '事假',   isPaid: false, maxDaysYear: 5,  color: '#a78bfa' },
+  ]).returning().all()
+  const lt = Object.fromEntries(ltRows.map(l => [l.code, l]))
   console.log('  Leave types: 3')
 
-  // ========== 8. 班组 ==========
-  const [groupA] = db.insert(s.groups).values({ name: 'Team Alpha', maxStartDiffMinutes: 30, maxEndDiffMinutes: 30 }).returning().all()
-  const [groupB] = db.insert(s.groups).values({ name: 'Team Beta',  maxStartDiffMinutes: 60, maxEndDiffMinutes: 60 }).returning().all()
-  console.log('  Groups: 2')
+  // ========== 8. 班组（3 个，不同约束） ==========
+  const [grpAlpha] = db.insert(s.groups).values({ name: 'Team Alpha', maxStartDiffMinutes: 120, maxEndDiffMinutes: 120 }).returning().all()
+  const [grpBeta]  = db.insert(s.groups).values({ name: 'Team Beta',  maxStartDiffMinutes: 240, maxEndDiffMinutes: 240 }).returning().all()
+  const [grpGamma] = db.insert(s.groups).values({ name: 'Team Gamma', maxStartDiffMinutes: 60,  maxEndDiffMinutes: 60  }).returning().all()
+  console.log('  Groups: 3 (Alpha/Beta/Gamma)')
 
-  // ========== 9. 员工 ==========
+  // ========== 9. 坐席（20 人） ==========
   const agentData = [
-    { name: 'George Gray',      employeeNo: 'E001', groupId: groupA.id, contractId: fullContract.id },
-    { name: 'Katie Printy',     employeeNo: 'E002', groupId: groupA.id, contractId: fullContract.id },
-    { name: 'Don Davidson',     employeeNo: 'E003', groupId: groupA.id, contractId: fullContract.id },
-    { name: 'Dayaram Devdas',   employeeNo: 'E004', groupId: groupA.id, contractId: fullContract.id },
-    { name: 'Phillip Gonzalez', employeeNo: 'E005', groupId: groupA.id, contractId: fullContract.id },
-    { name: 'Patricia Cook',    employeeNo: 'E006', groupId: groupB.id, contractId: fullContract.id },
-    { name: 'Dave Donaldson',   employeeNo: 'E007', groupId: groupB.id, contractId: fullContract.id },
-    { name: 'Fran Fredrickson', employeeNo: 'E008', groupId: groupB.id, contractId: fullContract.id },
-    { name: 'Stephen Conant',   employeeNo: 'E009', groupId: groupB.id, contractId: fullContract.id },
-    { name: 'Abigail Gill',    employeeNo: 'E010', groupId: groupB.id, contractId: fullContract.id },
-    { name: 'Alex Altherr',    employeeNo: 'E011', groupId: groupA.id, contractId: partContract.id },
-    { name: 'Siska Charles',   employeeNo: 'E012', groupId: groupA.id, contractId: partContract.id },
-    { name: 'Aaron Abel',      employeeNo: 'E013', groupId: groupB.id, contractId: fullContract.id },
-    { name: 'Maria Santos',    employeeNo: 'E014', groupId: groupB.id, contractId: fullContract.id },
-    { name: 'James Wilson',    employeeNo: 'E015', groupId: groupA.id, contractId: fullContract.id },
+    // Team Alpha（8 人）
+    { name: '张明',   employeeNo: 'E001', groupId: grpAlpha.id, contractId: ctFull.id },
+    { name: '李娜',   employeeNo: 'E002', groupId: grpAlpha.id, contractId: ctFull.id },
+    { name: '王磊',   employeeNo: 'E003', groupId: grpAlpha.id, contractId: ctFull.id },
+    { name: '赵敏',   employeeNo: 'E004', groupId: grpAlpha.id, contractId: ctFull.id },
+    { name: '陈刚',   employeeNo: 'E005', groupId: grpAlpha.id, contractId: ctFull.id },
+    { name: '刘洋',   employeeNo: 'E006', groupId: grpAlpha.id, contractId: ctPart.id },
+    { name: '黄芳',   employeeNo: 'E007', groupId: grpAlpha.id, contractId: ctPart.id },
+    { name: '周杰',   employeeNo: 'E008', groupId: grpAlpha.id, contractId: ctFull.id },
+    // Team Beta（7 人）
+    { name: '吴婷',   employeeNo: 'E009', groupId: grpBeta.id,  contractId: ctFull.id },
+    { name: '郑浩',   employeeNo: 'E010', groupId: grpBeta.id,  contractId: ctFull.id },
+    { name: '孙丽',   employeeNo: 'E011', groupId: grpBeta.id,  contractId: ctFull.id },
+    { name: '马超',   employeeNo: 'E012', groupId: grpBeta.id,  contractId: ctFull.id },
+    { name: '林小红', employeeNo: 'E013', groupId: grpBeta.id,  contractId: ctPart.id },
+    { name: '杨波',   employeeNo: 'E014', groupId: grpBeta.id,  contractId: ctFull.id },
+    { name: '许文强', employeeNo: 'E015', groupId: grpBeta.id,  contractId: ctFull.id },
+    // Team Gamma（5 人）
+    { name: '高明',   employeeNo: 'E016', groupId: grpGamma.id, contractId: ctFull.id },
+    { name: '方琳',   employeeNo: 'E017', groupId: grpGamma.id, contractId: ctFull.id },
+    { name: '韩磊',   employeeNo: 'E018', groupId: grpGamma.id, contractId: ctFull.id },
+    { name: '曹雪',   employeeNo: 'E019', groupId: grpGamma.id, contractId: ctFlex.id },
+    { name: '丁伟',   employeeNo: 'E020', groupId: grpGamma.id, contractId: ctFull.id },
   ]
   const agentRows = db.insert(s.agents).values(agentData).returning().all()
+  const ag = Object.fromEntries(agentRows.map(a => [a.employeeNo, a]))
   console.log(`  Agents: ${agentRows.length}`)
 
-  // ========== 10. 员工技能 ==========
-  const skillAssignments: { agentId: number; skillId: number; proficiency: number }[] = []
-  for (const ag of agentRows) {
-    // 所有人都有中文语音
-    skillAssignments.push({ agentId: ag.id, skillId: skill.VOICE_CN.id, proficiency: 100 })
-    // 前 5 个有英文语音
-    if (ag.id <= agentRows[4].id) {
-      skillAssignments.push({ agentId: ag.id, skillId: skill.VOICE_EN.id, proficiency: 80 })
-    }
-    // 偶数有在线聊天
-    if (ag.id % 2 === 0) {
-      skillAssignments.push({ agentId: ag.id, skillId: skill.CHAT.id, proficiency: 90 })
-    }
-    // 前 3 个有 VIP
-    if (ag.id <= agentRows[2].id) {
-      skillAssignments.push({ agentId: ag.id, skillId: skill.VIP.id, proficiency: 100 })
-    }
-  }
-  db.insert(s.agentSkills).values(skillAssignments).run()
-  console.log(`  Agent skills: ${skillAssignments.length}`)
+  // ========== 10. 技能分配（差异化） ==========
+  const skillBindings = [
+    // 所有人有中文语音
+    ...agentRows.map(a => ({ agentId: a.id, skillId: sk.VOICE_CN.id, proficiency: 100 })),
+    // 英语：李娜、郑浩、高明、周杰
+    { agentId: ag.E002.id, skillId: sk.VOICE_EN.id, proficiency: 90 },
+    { agentId: ag.E010.id, skillId: sk.VOICE_EN.id, proficiency: 80 },
+    { agentId: ag.E016.id, skillId: sk.VOICE_EN.id, proficiency: 95 },
+    { agentId: ag.E008.id, skillId: sk.VOICE_EN.id, proficiency: 85 },
+    // VIP：张明、周杰、许文强、高明
+    { agentId: ag.E001.id, skillId: sk.VIP.id, proficiency: 100 },
+    { agentId: ag.E008.id, skillId: sk.VIP.id, proficiency: 100 },
+    { agentId: ag.E015.id, skillId: sk.VIP.id, proficiency: 90 },
+    { agentId: ag.E016.id, skillId: sk.VIP.id, proficiency: 100 },
+    // 在线聊天：刘洋、林小红、丁伟
+    { agentId: ag.E006.id, skillId: sk.CHAT.id, proficiency: 100 },
+    { agentId: ag.E013.id, skillId: sk.CHAT.id, proficiency: 90 },
+    { agentId: ag.E020.id, skillId: sk.CHAT.id, proficiency: 85 },
+    // 邮件：黄芳、曹雪
+    { agentId: ag.E007.id, skillId: sk.EMAIL.id, proficiency: 100 },
+    { agentId: ag.E019.id, skillId: sk.EMAIL.id, proficiency: 90 },
+    // 投诉：陈刚、马超、丁伟
+    { agentId: ag.E005.id, skillId: sk.COMPLAINT.id, proficiency: 100 },
+    { agentId: ag.E012.id, skillId: sk.COMPLAINT.id, proficiency: 95 },
+    { agentId: ag.E020.id, skillId: sk.COMPLAINT.id, proficiency: 80 },
+    // 方琳：全技能
+    { agentId: ag.E017.id, skillId: sk.VOICE_EN.id, proficiency: 85 },
+    { agentId: ag.E017.id, skillId: sk.CHAT.id, proficiency: 90 },
+    { agentId: ag.E017.id, skillId: sk.EMAIL.id, proficiency: 80 },
+    { agentId: ag.E017.id, skillId: sk.VIP.id, proficiency: 75 },
+    { agentId: ag.E017.id, skillId: sk.COMPLAINT.id, proficiency: 70 },
+    // 王磊：多技能
+    { agentId: ag.E003.id, skillId: sk.VOICE_EN.id, proficiency: 70 },
+    { agentId: ag.E003.id, skillId: sk.CHAT.id, proficiency: 80 },
+    // 孙丽：多技能
+    { agentId: ag.E011.id, skillId: sk.CHAT.id, proficiency: 85 },
+    { agentId: ag.E011.id, skillId: sk.COMPLAINT.id, proficiency: 75 },
+  ]
+  db.insert(s.agentSkills).values(skillBindings).run()
+  console.log(`  Agent skills: ${skillBindings.length}`)
 
-  // ========== 11. 规则定义（12 条，覆盖 4 阶段） ==========
+  // ========== 11. 休假申请 ==========
+  db.insert(s.leaves).values([
+    // 张明：3/22 年假（预排，已审批）
+    { agentId: ag.E001.id, leaveTypeId: lt.ANNUAL.id, startTime: '2026-03-22T00:00:00Z', endTime: '2026-03-22T23:59:59Z', isFullDay: true, status: 'approved', isPrePlanned: true },
+    // 王磊：3/21 全天病假（预排，已审批） — US5 场景
+    { agentId: ag.E003.id, leaveTypeId: lt.SICK.id, startTime: '2026-03-21T00:00:00Z', endTime: '2026-03-21T23:59:59Z', isFullDay: true, status: 'approved', isPrePlanned: true },
+    // 赵敏：3/20 下午半天事假（临时，已审批） — US6 场景
+    { agentId: ag.E004.id, leaveTypeId: lt.PERSONAL.id, startTime: '2026-03-20T04:00:00Z', endTime: '2026-03-20T08:00:00Z', isFullDay: false, status: 'approved', isPrePlanned: false },
+    // 马超：3/24 事假（预排，待审批 → 不应参与排班）
+    { agentId: ag.E012.id, leaveTypeId: lt.PERSONAL.id, startTime: '2026-03-24T00:00:00Z', endTime: '2026-03-24T23:59:59Z', isFullDay: true, status: 'pending', isPrePlanned: true },
+  ]).run()
+  console.log('  Leaves: 4 (2 approved pre-planned, 1 approved temp, 1 pending)')
+
+  // ========== 12. 例外安排 ==========
+  db.insert(s.exceptions).values([
+    // 周杰：3/23 上午培训 — US12 场景
+    { agentId: ag.E008.id, activityId: act.TRAINING.id, startTime: '2026-03-23T02:00:00Z', endTime: '2026-03-23T04:00:00Z', note: '新系统培训' },
+  ]).run()
+  console.log('  Exceptions: 1')
+
+  // ========== 13. 规则定义 ==========
   const ruleDefs = db.insert(s.ruleDefinitions).values([
-    // generate 阶段
-    { code: 'LEAVE_FILTER',          name: 'Leave Filter',              category: 'plan',     stage: 'generate',     scopeType: 'global', severityDefault: 'info' },
-    { code: 'CONTRACT_SHIFT_AVAIL',  name: 'Contract Shift Availability', category: 'contract', stage: 'generate',  scopeType: 'contract', severityDefault: 'error' },
-    { code: 'STAFFING_MINIMUM',      name: 'Staffing Minimum',          category: 'staffing', stage: 'generate',     scopeType: 'plan',   severityDefault: 'warning' },
-    // edit_preview 阶段
-    { code: 'SNAP_ALIGNMENT',        name: 'Snap Alignment',            category: 'activity', stage: 'edit_preview', scopeType: 'global', severityDefault: 'info' },
-    { code: 'MIN_DURATION',          name: 'Minimum Duration',          category: 'activity', stage: 'edit_preview', scopeType: 'global', severityDefault: 'error', paramSchema: '{"minMinutes":15}' },
-    { code: 'SHIFT_BOUNDARY',        name: 'Shift Boundary',            category: 'activity', stage: 'edit_preview', scopeType: 'global', severityDefault: 'error' },
-    { code: 'ACTIVITY_COVER',        name: 'Activity Cover Rule',       category: 'activity', stage: 'edit_preview', scopeType: 'activity', severityDefault: 'error' },
-    // edit_commit 阶段
-    { code: 'CONTRACT_DAILY_HOURS',  name: 'Contract Daily Hours',      category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'error' },
-    { code: 'MEAL_REQUIRED',         name: 'Meal Required',             category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'warning' },
-    { code: 'MIN_BREAK',             name: 'Minimum Break',             category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'warning' },
-    { code: 'GROUP_SYNC',            name: 'Group Sync',                category: 'group',    stage: 'edit_commit',  scopeType: 'group',  severityDefault: 'warning' },
-    { code: 'STAFFING_COVERAGE',     name: 'Staffing Coverage',         category: 'staffing', stage: 'edit_commit',  scopeType: 'plan',   severityDefault: 'error', description: 'Checks min agents per time slot against staffing requirements' },
-    // publish 阶段
-    { code: 'WEEK_HOURS',            name: 'Weekly Hours Check',        category: 'contract', stage: 'publish',      scopeType: 'contract', severityDefault: 'error' },
+    { code: 'LEAVE_FILTER',          name: '休假过滤',        category: 'plan',     stage: 'generate',     scopeType: 'global',   severityDefault: 'info' },
+    { code: 'CONTRACT_SHIFT_AVAIL',  name: '合同班次可用性',  category: 'contract', stage: 'generate',     scopeType: 'contract', severityDefault: 'error' },
+    { code: 'STAFFING_MINIMUM',      name: '最低人数',        category: 'staffing', stage: 'generate',     scopeType: 'plan',     severityDefault: 'warning' },
+    { code: 'SNAP_ALIGNMENT',        name: '时间吸附',        category: 'activity', stage: 'edit_preview', scopeType: 'global',   severityDefault: 'info' },
+    { code: 'MIN_DURATION',          name: '最小时长',        category: 'activity', stage: 'edit_preview', scopeType: 'global',   severityDefault: 'error', paramSchema: '{"minMinutes":15}' },
+    { code: 'SHIFT_BOUNDARY',        name: '班次边界',        category: 'activity', stage: 'edit_preview', scopeType: 'global',   severityDefault: 'error' },
+    { code: 'ACTIVITY_COVER',        name: '活动覆盖规则',    category: 'activity', stage: 'edit_preview', scopeType: 'activity', severityDefault: 'error' },
+    { code: 'CONTRACT_DAILY_HOURS',  name: '合同日工时',      category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'error' },
+    { code: 'MEAL_REQUIRED',         name: '午餐必须',        category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'warning' },
+    { code: 'MIN_BREAK',             name: '最小休息',        category: 'contract', stage: 'edit_commit',  scopeType: 'contract', severityDefault: 'warning' },
+    { code: 'GROUP_SYNC',            name: '班组同步',        category: 'group',    stage: 'edit_commit',  scopeType: 'group',    severityDefault: 'warning' },
+    { code: 'STAFFING_COVERAGE',     name: '覆盖率校验',      category: 'staffing', stage: 'edit_commit',  scopeType: 'plan',     severityDefault: 'error' },
+    { code: 'WEEK_HOURS',            name: '周工时检查',      category: 'contract', stage: 'publish',      scopeType: 'contract', severityDefault: 'error' },
   ]).returning().all()
-  const ruleDef = Object.fromEntries(ruleDefs.map(r => [r.code, r]))
   console.log(`  Rule definitions: ${ruleDefs.length}`)
 
-  // ========== 12. 规则绑定（全部默认启用） ==========
+  // ========== 14. 规则绑定 + 编排 ==========
   const bindings = db.insert(s.ruleBindings).values(
-    ruleDefs.map(rd => ({
-      definitionId: rd.id,
-      scopeType: rd.scopeType,
-      scopeId: null,
-      priority: 100,
-      enabled: true,
-      params: null,
-    })),
+    ruleDefs.map(rd => ({ definitionId: rd.id, scopeType: rd.scopeType, scopeId: null, priority: 100, enabled: true, params: null })),
   ).returning().all()
-  console.log(`  Rule bindings: ${bindings.length}`)
 
-  // ========== 13. 规则链（按阶段编排） ==========
   const stages = ['generate', 'edit_preview', 'edit_commit', 'publish']
   let chainCount = 0
   for (const stage of stages) {
-    const stageBindings = bindings.filter((b, i) => ruleDefs[i].stage === stage)
+    const stageBindings = bindings.filter((_, i) => ruleDefs[i].stage === stage)
     stageBindings.forEach((b, order) => {
-      db.insert(s.ruleChains).values({
-        stage,
-        executionOrder: order + 1,
-        bindingId: b.id,
-        stopOnError: stage === 'publish',
-      }).run()
+      db.insert(s.ruleChains).values({ stage, executionOrder: order + 1, bindingId: b.id, stopOnError: stage === 'publish' }).run()
       chainCount++
     })
   }
-  console.log(`  Rule chains: ${chainCount}`)
+  console.log(`  Rule bindings: ${bindings.length}, chains: ${chainCount}`)
 
-  // ========== 14. 覆盖需求示例 ==========
-  // 注意：这些需求会在排班方案生成后才有意义
-  // 暂时用 planId=0 作为模板，方案生成后可复制到实际方案
-  // 也可以通过前端"覆盖需求"管理页面手动创建
-
-  // 示例说明：
-  // - 早高峰 09:00-11:00 至少 8 人接电话（对应本地时间，存为 UTC 01:00-03:00）
-  // - 午间 12:00-14:00 至少 5 人值班
-  // - VIP 技能组全天 08:00-18:00 至少 2 人
-  // - 在线聊天渠道 09:00-17:00 至少 3 人
-
-  // 这里先不插入（因为还没有 planId），在"覆盖需求"管理页面可以创建
-  // 当用户创建排班方案并生成后，可以通过管理页面或 API 添加覆盖需求
-  console.log('  Staffing requirements: (create via admin UI after plan generation)')
-
-  console.log('Seed complete! (28 tables)')
+  console.log('Seed complete!')
 }
 
 seed()
