@@ -10,15 +10,25 @@ let initialized = false
 export let PLAN_ID = 1
 
 export async function ensurePlanExists() {
-  if (initialized) return
-
   // 检查是否已有方案
   const plans = await api('/plans')
-  if (plans.length > 0) {
+  if (Array.isArray(plans) && plans.length > 0) {
     PLAN_ID = plans[0].id
-    initialized = true
+    // If plan is published, roll back to editing so edits are possible
+    const plan = await api('/plans/' + PLAN_ID)
+    if (plan.status === 'published') {
+      const history = await api('/plans/' + PLAN_ID + '/history')
+      const versions: any[] = history.versions ?? []
+      if (versions.length > 0) {
+        const latestVersion = versions[versions.length - 1].versionNo
+        await post('/plans/' + PLAN_ID + '/rollback', { versionNo: latestVersion })
+      }
+    }
     return
   }
+
+  if (initialized) return
+  initialized = true
 
   // 创建 7 天方案并生成排班
   const { plan } = await createAndGenerate('Week 12 Schedule', '2026-03-20', '2026-03-26')
@@ -35,6 +45,4 @@ export async function ensurePlanExists() {
     startTime: '2026-03-20T04:00:00Z', endTime: '2026-03-20T06:00:00Z',
     minAgents: 5,
   })
-
-  initialized = true
 }

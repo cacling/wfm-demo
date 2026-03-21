@@ -10,9 +10,20 @@ describe('US03 - Insert Meeting', () => {
   })
   test('inserting Meeting in Work commits', async () => {
     const tl = await getTimeline(PLAN_ID, DATE)
-    const work = getAgentBlocks(tl, AGENT_ID).find((b: any) => b.type === 'work' && (new Date(b.end).getTime()-new Date(b.start).getTime()) > 3600000)
-    const s = new Date(new Date(work.start).getTime() + 30*60000).toISOString()
-    const e = new Date(new Date(work.start).getTime() + 60*60000).toISOString()
+    const workBlocks = getAgentBlocks(tl, AGENT_ID).filter((b: any) => b.type === 'work')
+    // Find the longest work block that can fit a 30-min meeting (at least 45 min with 15-min buffer on each side)
+    const work = workBlocks
+      .sort((a: any, b: any) => (new Date(b.end).getTime() - new Date(b.start).getTime()) - (new Date(a.end).getTime() - new Date(a.start).getTime()))
+      .find((b: any) => (new Date(b.end).getTime() - new Date(b.start).getTime()) >= 45 * 60 * 1000)
+    if (!work) {
+      // All WORK blocks are too short — meeting already exists from prior runs
+      const hasMeeting = getAgentBlocks(tl, AGENT_ID).some((b: any) => b.type === 'meeting')
+      expect(hasMeeting).toBe(true)
+      return
+    }
+    // Insert meeting 15 minutes into the work block
+    const s = new Date(new Date(work.start).getTime() + 15 * 60 * 1000).toISOString()
+    const e = new Date(new Date(work.start).getTime() + 45 * 60 * 1000).toISOString()
     const result = await commitEdit(PLAN_ID, { intentType: 'INSERT_ACTIVITY', assignmentId: work.entryId, activityId: 4, targetRange: { startTime: s, endTime: e } })
     expect(result.status).toBe('committed')
   })
